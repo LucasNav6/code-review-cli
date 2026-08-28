@@ -85,4 +85,12 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-El workflow en `.github/workflows/release.yml` compila binarios para Linux/macOS/Windows (amd64 y arm64) y los adjunta a una GitHub Release, junto con un `checksums.txt`.
+El workflow en `.github/workflows/release.yml` compila binarios para Linux/macOS/Windows (amd64 y arm64) y los adjunta a una GitHub Release, junto con un `checksums.txt`. Solo se publican releases de tags cuyo commit pertenece a `master`.
+
+## Contribuir
+
+Los cambios se aceptan únicamente vía Pull Request contra `master`, y requieren aprobación de un code owner (ver [`.github/CODEOWNERS`](.github/CODEOWNERS)). Guía completa en [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).
+
+## Licencia
+
+[Apache License 2.0](./LICENSE).
