@@ -28,6 +28,7 @@ type Model struct {
 
 	diff     string
 	diffPath string
+	headSHA  string
 
 	preflight         preflightState
 	dependencyResults []dependencyResult

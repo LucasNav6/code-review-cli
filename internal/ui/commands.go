@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/LucasNav6/code-review-cli/internal/claude"
+	"github.com/LucasNav6/code-review-cli/internal/depscan"
 	"github.com/LucasNav6/code-review-cli/internal/githubpr"
 	"github.com/LucasNav6/code-review-cli/internal/review"
 )
@@ -40,10 +41,21 @@ func fetchDiffCmd(pr githubpr.PullRequest, outputPath string) tea.Cmd {
 	}
 }
 
-func startReviewCmd(stage review.Stage, diff string, stageIndex int) tea.Cmd {
+// startReviewCmd arranca la etapa indicada, sin importar de qué tipo sea:
+// las etapas review.KindPrompt corren vía Claude, las review.KindCommand
+// corren un chequeo aislado por comandos (sin ningún LLM de por medio).
+func startReviewCmd(pr githubpr.PullRequest, headSHA string, stage review.Stage, diff string, stageIndex int) tea.Cmd {
+	if stage.Kind == review.KindCommand {
+		return runDependencyScanCmd(pr, headSHA, stageIndex)
+	}
+
+	return startPromptReviewCmd(stage, diff, stageIndex)
+}
+
+func startPromptReviewCmd(stage review.Stage, diff string, stageIndex int) tea.Cmd {
 	return func() tea.Msg {
 		if !strings.Contains(stage.Prompt, "{{DIFF}}") {
-			return claudeFailedMsg{
+			return stageFailedMsg{
 				stage: stageIndex,
 				err:   fmt.Errorf("el prompt de %s no contiene {{DIFF}}", stage.Name),
 			}
@@ -56,6 +68,24 @@ func startReviewCmd(stage review.Stage, diff string, stageIndex int) tea.Cmd {
 		return claudeStartedMsg{
 			stage:   stageIndex,
 			channel: channel,
+		}
+	}
+}
+
+// runDependencyScanCmd corre el escaneo de dependencias con OSV-Scanner.
+// No es incremental (no hay streaming): corre, y devuelve el resultado ya
+// armado de una sola vez.
+func runDependencyScanCmd(pr githubpr.PullRequest, headSHA string, stageIndex int) tea.Cmd {
+	return func() tea.Msg {
+		result, rawOutput, err := depscan.Scan(pr, headSHA)
+		if err != nil {
+			return stageFailedMsg{stage: stageIndex, err: err}
+		}
+
+		return commandFinishedMsg{
+			stage:     stageIndex,
+			result:    result,
+			rawOutput: rawOutput,
 		}
 	}
 }

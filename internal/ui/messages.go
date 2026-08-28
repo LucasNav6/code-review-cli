@@ -7,6 +7,7 @@ import (
 
 	"github.com/LucasNav6/code-review-cli/internal/claude"
 	"github.com/LucasNav6/code-review-cli/internal/githubpr"
+	"github.com/LucasNav6/code-review-cli/internal/review"
 )
 
 var errClaudeStreamClosed = fmt.Errorf("Claude cerró el stream inesperadamente")
@@ -39,9 +40,18 @@ type claudeFinishedMsg struct {
 	result string
 }
 
-type claudeFailedMsg struct {
+type stageFailedMsg struct {
 	stage int
 	err   error
+}
+
+// commandFinishedMsg es el equivalente a claudeFinishedMsg para etapas
+// review.KindCommand: ya trae el Result armado, no pasa por el parser de
+// respuestas de Claude.
+type commandFinishedMsg struct {
+	stage     int
+	result    *review.Result
+	rawOutput string
 }
 
 type appErrorMsg struct {
@@ -55,7 +65,7 @@ func waitForClaudeEvent(stage int, channel <-chan claude.Event) tea.Cmd {
 		event, ok := <-channel
 
 		if !ok {
-			return claudeFailedMsg{
+			return stageFailedMsg{
 				stage: stage,
 				err:   errClaudeStreamClosed,
 			}
@@ -72,7 +82,7 @@ func waitForClaudeEvent(stage int, channel <-chan claude.Event) tea.Cmd {
 			return claudeFinishedMsg{stage: stage, result: event.Result}
 
 		case claude.EventFailed:
-			return claudeFailedMsg{stage: stage, err: event.Err}
+			return stageFailedMsg{stage: stage, err: event.Err}
 
 		default:
 			return claudeStatusMsg{stage: stage, text: ""}

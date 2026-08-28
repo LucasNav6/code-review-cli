@@ -286,12 +286,20 @@ func (m Model) renderContentHeader(stage review.Stage) string {
 	if stage.Status == review.StatusRunning {
 		mode = m.spinner.View() + " ANALIZANDO"
 	} else if m.mode == modeClaude {
-		mode = "CLAUDE OUTPUT"
+		mode = rawOutputLabel(stage)
 	} else {
 		mode = "HALLAZGOS"
 	}
 
 	return fmt.Sprintf("%s    %s", sectionStyle.Render(stage.Name), mutedStyle.Render(mode))
+}
+
+func rawOutputLabel(stage review.Stage) string {
+	if stage.Kind == review.KindCommand {
+		return "SALIDA DEL ESCANEO"
+	}
+
+	return "CLAUDE OUTPUT"
 }
 
 // =============================================================================
@@ -387,6 +395,14 @@ func (m Model) renderFindingContent(stage review.Stage, width int) string {
 
 func (m Model) renderClaudeContent(stage review.Stage) string {
 	if stage.RawOutput == "" {
+		if stage.Kind == review.KindCommand {
+			if stage.Status == review.StatusPending {
+				return mutedStyle.Render("Este chequeo todavía no se ejecutó.")
+			}
+
+			return m.spinner.View() + " " + mutedStyle.Render("Escaneando dependencias...")
+		}
+
 		if stage.Status == review.StatusPending {
 			return mutedStyle.Render("Claude todavía no ejecutó esta revisión.")
 		}
@@ -405,7 +421,13 @@ func (m Model) renderFooter() string {
 	mode := "Hallazgos"
 
 	if m.mode == modeClaude {
-		mode = "Claude"
+		mode = "Salida"
+
+		if m.selectedStage >= 0 && m.selectedStage < len(m.stages) &&
+			m.stages[m.selectedStage].Kind != review.KindCommand {
+
+			mode = "Claude"
+		}
 	}
 
 	var controls []string

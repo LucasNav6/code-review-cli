@@ -34,7 +34,7 @@ func newRootCmd() *cobra.Command {
 		Short: "Revisión automática de Pull Requests con Claude Code",
 		Long: brandStyle.Render("code-review") + "\n" +
 			mutedStyle.Render("Revisión automática de Pull Requests de GitHub con Claude Code,\n"+
-				"organizada en etapas: seguridad OWASP, mantenibilidad, testing y resiliencia."),
+				"organizada en etapas: seguridad OWASP, dependencias (OSV.dev), mantenibilidad, testing y resiliencia."),
 		Example: exampleText(),
 		Version: buildinfo.Version,
 

@@ -13,6 +13,7 @@ type Info struct {
 	Title        string `json:"title"`
 	BaseRefName  string `json:"baseRefName"`
 	HeadRefName  string `json:"headRefName"`
+	HeadRefOid   string `json:"headRefOid"`
 	ChangedFiles int    `json:"changedFiles"`
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
@@ -49,7 +50,7 @@ func FetchInfo(pr PullRequest) (*Info, error) {
 		"--repo",
 		pr.Repository(),
 		"--json",
-		"title,author,baseRefName,headRefName,changedFiles,additions,deletions",
+		"title,author,baseRefName,headRefName,headRefOid,changedFiles,additions,deletions",
 	)
 
 	output, err := cmd.CombinedOutput()

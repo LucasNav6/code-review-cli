@@ -38,11 +38,26 @@ const (
 	StatusError
 )
 
+// Kind distingue cómo se ejecuta una etapa.
+type Kind int
+
+const (
+	// KindPrompt es una etapa que le manda un prompt a Claude y parsea su
+	// respuesta (seguridad OWASP, mantenibilidad, testing, resiliencia).
+	KindPrompt Kind = iota
+
+	// KindCommand es una etapa aislada que corre un chequeo determinístico
+	// por comandos/librerías, sin pasar por un LLM (por ejemplo, el escaneo
+	// de vulnerabilidades de dependencias con OSV-Scanner).
+	KindCommand
+)
+
 // Stage es una dimensión de revisión (seguridad, mantenibilidad, etc.)
 // junto con su prompt, su salida y su estado de ejecución.
 type Stage struct {
 	Name        string
 	ShortName   string
+	Kind        Kind
 	Prompt      string
 	OutputPath  string
 	Description string
@@ -73,6 +88,14 @@ func DefaultStages() []Stage {
 			Prompt:      securityPrompt(),
 			OutputPath:  "seguridad.md",
 			Description: "OWASP API Security Top 10 2023",
+			Status:      StatusPending,
+		},
+		{
+			Name:        "Dependencias",
+			ShortName:   "DEPENDENCIES",
+			Kind:        KindCommand,
+			OutputPath:  "dependencias.md",
+			Description: "Vulnerabilidades conocidas en dependencias (OSV.dev)",
 			Status:      StatusPending,
 		},
 		{

@@ -46,6 +46,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prInfoLoadedMsg:
 		m.prInfo = &msg.info
+		m.headSHA = msg.info.HeadRefOid
 
 		m.loadingText = "Obteniendo los archivos y el código modificado del pull request..."
 
@@ -64,7 +65,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.refreshViewport()
 
-		return m, startReviewCmd(m.stages[0], m.diff, 0)
+		return m, startReviewCmd(m.pr, m.headSHA, m.stages[0], m.diff, 0)
 
 	case claudeStartedMsg:
 		m.claudeChannel = msg.channel
@@ -88,9 +89,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForClaudeEvent(msg.stage, m.claudeChannel)
 
 	case claudeFinishedMsg:
-		return m.finishReview(msg.stage, msg.result)
+		return m.finishPromptReview(msg.stage, msg.result)
 
-	case claudeFailedMsg:
+	case commandFinishedMsg:
+		return m.applyStageResult(msg.stage, msg.result, msg.rawOutput)
+
+	case stageFailedMsg:
 		if msg.stage >= 0 && msg.stage < len(m.stages) {
 			m.stages[msg.stage].Status = review.StatusError
 		}
@@ -245,12 +249,15 @@ func (m *Model) refreshViewport() {
 	}
 }
 
-func (m Model) finishReview(stageIndex int, rawResult string) (tea.Model, tea.Cmd) {
+// finishPromptReview interpreta la respuesta cruda de Claude para una etapa
+// review.KindPrompt y delega el resto (guardar resultado, avanzar de etapa)
+// en applyStageResult.
+func (m Model) finishPromptReview(stageIndex int, rawResult string) (tea.Model, tea.Cmd) {
 	if stageIndex < 0 || stageIndex >= len(m.stages) {
 		return m, nil
 	}
 
-	stage := &m.stages[stageIndex]
+	stage := m.stages[stageIndex]
 
 	result, err := review.ParseResult(rawResult, stage.ShortName)
 
@@ -259,14 +266,25 @@ func (m Model) finishReview(stageIndex int, rawResult string) (tea.Model, tea.Cm
 		// inesperada. La convertimos en un hallazgo visible para poder
 		// inspeccionarla.
 		result = review.FallbackResult(rawResult, stage.ShortName)
-
-		stage.RawOutput = rawResult
 	}
+
+	return m.applyStageResult(stageIndex, result, rawResult)
+}
+
+// applyStageResult guarda el resultado ya estructurado de una etapa (venga
+// de Claude ya parseado, o directo de un chequeo por comandos) y avanza el
+// pipeline a la siguiente etapa.
+func (m Model) applyStageResult(stageIndex int, result *review.Result, rawOutput string) (tea.Model, tea.Cmd) {
+	if stageIndex < 0 || stageIndex >= len(m.stages) {
+		return m, nil
+	}
+
+	stage := &m.stages[stageIndex]
 
 	stage.Result = result
 
-	if strings.TrimSpace(stage.RawOutput) == "" {
-		stage.RawOutput = rawResult
+	if strings.TrimSpace(rawOutput) != "" {
+		stage.RawOutput = rawOutput
 	}
 
 	if len(result.Findings) == 0 {
@@ -313,11 +331,11 @@ func (m Model) finishReview(stageIndex int, rawResult string) (tea.Model, tea.Cm
 
 	m.mode = modeClaude
 
-	m.activity = "Claude está ejecutando " + m.stages[next].Name + "..."
+	m.activity = "Ejecutando " + m.stages[next].Name + "..."
 
 	m.refreshViewport()
 
-	return m, startReviewCmd(m.stages[next], m.diff, next)
+	return m, startReviewCmd(m.pr, m.headSHA, m.stages[next], m.diff, next)
 }
 
 func removeOldOutput(path string) error {
