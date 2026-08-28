@@ -37,8 +37,8 @@ func renderUpdateCard(result *update.CheckResult) string {
 	)
 
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(warningColor).
+		Border(lipgloss.ThickBorder()).
+		BorderForeground(fg).
 		Padding(1, 2).
 		Render(inner)
 }

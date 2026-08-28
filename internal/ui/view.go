@@ -117,9 +117,11 @@ func (m Model) renderPreflightScreen(width int) string {
 	panel := normalPanel
 
 	if m.preflight == preflightFailed {
+		// Sin color de "error": la urgencia se transmite con un borde más
+		// grueso, no con un acento cromático.
 		panel = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(danger).
+			Border(lipgloss.ThickBorder()).
+			BorderForeground(strongBorder).
 			Padding(0, 1)
 	}
 

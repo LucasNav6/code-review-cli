@@ -61,12 +61,3 @@ func exampleText() string {
 		"  code-review --org=\"org\" --repo=\"repo\" --id=123\n" +
 		"  code-review upgrade"
 }
-
-func versionText() string {
-	return fmt.Sprintf(
-		"%s %s\n%s\n",
-		brandStyle.Render("code-review"),
-		successStyle.Render(buildinfo.Version),
-		mutedStyle.Render(fmt.Sprintf("commit %s · built %s", buildinfo.Commit, buildinfo.Date)),
-	)
-}
