@@ -29,6 +29,9 @@ type Model struct {
 	diff     string
 	diffPath string
 
+	preflight         preflightState
+	dependencyResults []dependencyResult
+
 	stages []review.Stage
 
 	executingStage int
@@ -65,20 +68,21 @@ func New(pr githubpr.PullRequest) Model {
 	return Model{
 		pr:             pr,
 		diffPath:       "diff_output.txt",
+		preflight:      preflightRunning,
 		stages:         review.DefaultStages(),
 		executingStage: -1,
 		selectedStage:  0,
 		mode:           modeFindings,
 		spinner:        s,
 		viewport:       vp,
-		loadingText:    "Buscando la información del pull request...",
+		loadingText:    "Validando que tengas gh y claude instalados...",
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		fetchPRInfoCmd(m.pr),
+		checkDependenciesCmd(),
 	)
 }
 

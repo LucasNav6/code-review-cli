@@ -31,6 +31,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, cmd
 
+	case preflightMsg:
+		m.dependencyResults = msg.results
+
+		if !allDependenciesFound(msg.results) {
+			m.preflight = preflightFailed
+			return m, nil
+		}
+
+		m.preflight = preflightPassed
+		m.loadingText = "Buscando la información del pull request..."
+
+		return m, fetchPRInfoCmd(m.pr)
+
 	case prInfoLoadedMsg:
 		m.prInfo = &msg.info
 

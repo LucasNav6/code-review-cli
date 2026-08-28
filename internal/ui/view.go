@@ -28,6 +28,12 @@ func (m Model) render() string {
 
 	totalWidth := max(70, m.width-4)
 
+	if m.preflight != preflightPassed {
+		return lipgloss.NewStyle().
+			Padding(1, 2).
+			Render(m.renderPreflightScreen(totalWidth))
+	}
+
 	header := m.renderHeader(totalWidth)
 
 	if m.err != nil {
@@ -66,6 +72,58 @@ func (m Model) render() string {
 	)
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(ui)
+}
+
+// =============================================================================
+// PREFLIGHT
+// =============================================================================
+
+func (m Model) renderPreflightScreen(width int) string {
+	brand := brandBadgeStyle.Render(" code-review ") + "  " + dimStyle.Render(buildinfo.Version)
+
+	lines := []string{brand, "", sectionStyle.Render("VALIDANDO ENTORNO"), ""}
+
+	if len(m.dependencyResults) == 0 {
+		lines = append(
+			lines,
+			m.spinner.View()+" "+mutedStyle.Render("Comprobando que tengas gh y claude instalados..."),
+		)
+	} else {
+		for _, dep := range m.dependencyResults {
+			icon := successStyle.Render("✓")
+			status := mutedStyle.Render("encontrado")
+
+			if !dep.Found {
+				icon = errorStyle.Render("✗")
+				status = errorStyle.Render("no encontrado")
+			}
+
+			lines = append(lines, fmt.Sprintf("%s %s   %s", icon, titleStyle.Render(dep.Label), status))
+
+			if !dep.Found {
+				lines = append(lines, "    "+mutedStyle.Render(dep.InstallHint))
+			}
+		}
+
+		if m.preflight == preflightFailed {
+			lines = append(
+				lines,
+				"",
+				errorStyle.Render("Instalá lo que falta y volvé a correr code-review."),
+			)
+		}
+	}
+
+	panel := normalPanel
+
+	if m.preflight == preflightFailed {
+		panel = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(danger).
+			Padding(0, 1)
+	}
+
+	return panel.Width(width).Render(strings.Join(lines, "\n"))
 }
 
 // =============================================================================
