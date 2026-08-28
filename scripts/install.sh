@@ -2,7 +2,7 @@
 # Instala el último binario de code-review publicado en GitHub Releases,
 # sin necesidad de tener Go instalado. Pensado para usarse como:
 #
-#   curl -fsSL https://raw.githubusercontent.com/LucasNav6/code-review-cli/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/LucasNav6/code-review-cli/master/scripts/install.sh | sh
 #
 set -eu
 

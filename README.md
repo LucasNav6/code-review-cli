@@ -19,7 +19,7 @@ Muestra el progreso de cada etapa en una interfaz interactiva de terminal y deja
 ### Sin Go (binario precompilado)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/LucasNav6/code-review-cli/main/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/LucasNav6/code-review-cli/master/scripts/install.sh \
   | CODE_REVIEW_REPO=LucasNav6/code-review-cli sh
 ```
 
