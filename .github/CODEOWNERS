@@ -1,0 +1,6 @@
+# Ver https://docs.github.com/articles/about-codeowners
+# Para que esto bloquee merges sin tu revisión, además hay que activar
+# "Require review from Code Owners" en la branch protection rule de master
+# (Settings → Branches → master → Require a pull request before merging).
+
+* @LucasNav6
