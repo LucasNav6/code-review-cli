@@ -1,0 +1,14 @@
+# Build artifacts
+/bin/
+/dist/
+
+# Salidas generadas por `code-review` al correr contra un PR
+/diff_output.txt
+/seguridad.md
+/mantenibilidad.md
+/testing.md
+/resilience.md
+
+# Go
+*.test
+*.out
