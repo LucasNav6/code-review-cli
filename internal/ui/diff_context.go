@@ -71,6 +71,11 @@ func renderFilesChanged(diff string, findings []review.Finding, width int) strin
 		return mutedStyle.Render("No diff content available.")
 	}
 
+	if len(findings) == 0 {
+		groups = mockFindingGroups(blocks)
+		markCommentLines(blocks, groups)
+	}
+
 	var b strings.Builder
 
 	b.WriteString(mutedStyle.Render(fmt.Sprintf("%d files changed", len(blocks))))
@@ -234,13 +239,9 @@ func renderDiffFile(block diffBlock, findings []review.Finding, width int) strin
 		lines = compactDiffLines(block.Lines, findings)
 	}
 
-	diffBody := renderDiffLines(block.File, lines, width)
-	comments := ""
-	if len(findings) > 0 {
-		comments = "\n" + renderFileComments(findings, width)
-	}
+	diffBody := renderDiffLines(block.File, lines, findings, width)
 
-	return title + "\n" + normalPanel.Width(width).Render(diffBody+comments)
+	return title + "\n" + normalPanel.Width(width).Render(diffBody)
 }
 
 func renderFileRule(block diffBlock, width int) string {
@@ -273,9 +274,10 @@ func diffStats(lines []diffLine) (int, int) {
 	return additions, deletions
 }
 
-func renderDiffLines(file string, lines []diffLine, width int) string {
+func renderDiffLines(file string, lines []diffLine, findings []review.Finding, width int) string {
 	innerWidth := max(24, width-4)
 	maxLineWidth := max(24, innerWidth-10)
+	findingsByLine := groupFindingsByLine(findings)
 	var b strings.Builder
 
 	for _, line := range lines {
@@ -306,9 +308,26 @@ func renderDiffLines(file string, lines []diffLine, width int) string {
 
 		b.WriteString(row)
 		b.WriteString("\n")
+
+		for _, finding := range findingsByLine[line.NewLine] {
+			b.WriteString(renderInlineComment(finding, innerWidth))
+			b.WriteString("\n")
+		}
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func groupFindingsByLine(findings []review.Finding) map[int][]review.Finding {
+	groups := map[int][]review.Finding{}
+
+	for _, finding := range findings {
+		if finding.Line > 0 {
+			groups[finding.Line] = append(groups[finding.Line], finding)
+		}
+	}
+
+	return groups
 }
 
 func diffPrefix(kind byte) string {
@@ -333,20 +352,57 @@ func renderFileComments(findings []review.Finding, width int) string {
 	return b.String()
 }
 
-func renderReviewComment(finding review.Finding, width int) string {
-	line := "file"
-	if finding.Line > 0 {
-		line = fmt.Sprintf("line R%d", finding.Line)
+func renderInlineComment(finding review.Finding, width int) string {
+	comment := renderReviewComment(finding, width-6)
+	prefix := commentLineStyle.Render("    │ ")
+
+	var b strings.Builder
+	for _, line := range strings.Split(comment, "\n") {
+		b.WriteString(prefix)
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 
-	header := commentHeaderStyle.Render(fmt.Sprintf("comment on %s · %s", line, strings.ToUpper(finding.Category)))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func mockFindingGroups(blocks []diffBlock) map[string][]review.Finding {
+	for _, block := range blocks {
+		for _, line := range block.Lines {
+			if line.NewLine <= 0 || line.Kind != '+' {
+				continue
+			}
+
+			return map[string][]review.Finding{
+				block.File: {
+					{
+						File:     block.File,
+						Line:     line.NewLine,
+						Category: "mock",
+						Title:    "Comentario de ejemplo",
+						Comment:  "Este es el lugar donde aparecería una observación del review async, pegada al contexto exacto del cambio.",
+					},
+				},
+			}
+		}
+	}
+
+	return map[string][]review.Finding{}
+}
+
+func renderReviewComment(finding review.Finding, width int) string {
+	header := commentHeaderStyle.Render(fmt.Sprintf("[%s]", strings.ToUpper(finding.Category)))
 	body := ""
 
 	if finding.Title != "" {
-		body += titleStyle.Render(finding.Title) + "\n\n"
+		body += titleStyle.Render(finding.Title)
 	}
 
 	if finding.Comment != "" {
+		if body != "" {
+			body += "\n"
+		}
+
 		body += wrapText(finding.Comment, width)
 	}
 

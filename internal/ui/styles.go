@@ -179,6 +179,9 @@ var (
 			Background(commentBg).
 			Padding(0, 1)
 
+	commentLineStyle = lipgloss.NewStyle().
+				Foreground(commentLine)
+
 	commentHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(fg)

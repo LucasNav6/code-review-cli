@@ -47,9 +47,40 @@ func TestRenderInlineReviewIncludesDiffAndComment(t *testing.T) {
 	for _, expected := range []string{
 		"internal/app.go",
 		"+ func risky() {}",
-		"comment on line R2",
+		"[SECURITY]",
 		"Avoid risky helper",
 		"This helper has no validation.",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("expected rendered output to contain %q:\n%s", expected, rendered)
+		}
+	}
+
+	codeIndex := strings.Index(rendered, "+ func risky() {}")
+	commentIndex := strings.Index(rendered, "[SECURITY]")
+	if codeIndex == -1 || commentIndex == -1 || commentIndex < codeIndex {
+		t.Fatalf("expected comment to render inline after target line:\n%s", rendered)
+	}
+}
+
+func TestRenderFilesChangedAddsMockInlineComment(t *testing.T) {
+	diff := strings.Join([]string{
+		"diff --git a/internal/app.go b/internal/app.go",
+		"--- a/internal/app.go",
+		"+++ b/internal/app.go",
+		"@@ -1,2 +1,3 @@",
+		" package internal",
+		"+func mockTarget() {}",
+		" func stable() {}",
+		"",
+	}, "\n")
+
+	rendered := stripANSI(renderFilesChanged(diff, nil, 100))
+
+	for _, expected := range []string{
+		"+ func mockTarget() {}",
+		"[MOCK]",
+		"Comentario de ejemplo",
 	} {
 		if !strings.Contains(rendered, expected) {
 			t.Fatalf("expected rendered output to contain %q:\n%s", expected, rendered)
