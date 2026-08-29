@@ -29,9 +29,8 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "code-review",
 		Short: "Revisión automática de Pull Requests con Claude Code",
-		Long: brandStyle.Render("code-review") + "\n" +
-			mutedStyle.Render("Revisión automática de Pull Requests de GitHub con Claude Code,\n"+
-				"organizada en etapas: seguridad OWASP, dependencias (OSV.dev), mantenibilidad, testing y resiliencia."),
+		Long: "Revisión automática de Pull Requests de GitHub con Claude Code,\n" +
+			"organizada en etapas: seguridad OWASP, dependencias (OSV.dev), mantenibilidad, testing y resiliencia.",
 		Example: exampleText(),
 		Version: buildinfo.Version,
 
@@ -48,6 +47,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.SetVersionTemplate(versionTemplateText())
 	cmd.SetFlagErrorFunc(flagErrorFunc)
+	cmd.SetHelpFunc(renderHelp)
 
 	cmd.AddCommand(newUpgradeCmd())
 

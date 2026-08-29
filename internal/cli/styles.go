@@ -13,9 +13,9 @@ var (
 	border = lipgloss.Color("#3F3F46")
 
 	// updateAccent es la única excepción deliberada a la paleta en escala
-	// de grises: reservada exclusivamente para avisos de actualización
-	// (el aviso post-revisión), igual que el clásico aviso amarillo de
-	// "outdated" de npm.
+	// de grises: reservada para avisos de actualización (el aviso
+	// post-revisión), igual que el clásico aviso amarillo de "outdated"
+	// de npm, y para resaltar nombres de comandos/flags en --help.
 	updateAccent = lipgloss.Color("#F59E0B")
 
 	updateStyle = lipgloss.NewStyle().
