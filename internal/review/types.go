@@ -55,19 +55,16 @@ const (
 // Stage es una dimensión de revisión (seguridad, mantenibilidad, etc.)
 // junto con su prompt, su salida y su estado de ejecución.
 type Stage struct {
-	Name        string
-	ShortName   string
-	Kind        Kind
-	Prompt      string
-	OutputPath  string
-	Description string
+	Name       string
+	ShortName  string
+	Kind       Kind
+	Prompt     string
+	OutputPath string
 
 	Status Status
 
 	RawOutput string
 	Result    *Result
-
-	SelectedFinding int
 }
 
 // Findings devuelve los hallazgos de la etapa, o nil si todavía no corrió.
@@ -83,44 +80,39 @@ func (s Stage) Findings() []Finding {
 func DefaultStages() []Stage {
 	return []Stage{
 		{
-			Name:        "Seguridad OWASP",
-			ShortName:   "SECURITY",
-			Prompt:      securityPrompt(),
-			OutputPath:  "seguridad.md",
-			Description: "OWASP API Security Top 10 2023",
-			Status:      StatusPending,
+			Name:       "Security OWASP",
+			ShortName:  "SECURITY",
+			Prompt:     securityPrompt(),
+			OutputPath: "seguridad.md",
+			Status:     StatusPending,
 		},
 		{
-			Name:        "Dependencias",
-			ShortName:   "DEPENDENCIES",
-			Kind:        KindCommand,
-			OutputPath:  "dependencias.md",
-			Description: "Vulnerabilidades conocidas en dependencias (OSV.dev)",
-			Status:      StatusPending,
+			Name:       "Dependencies",
+			ShortName:  "DEPENDENCIES",
+			Kind:       KindCommand,
+			OutputPath: "dependencias.md",
+			Status:     StatusPending,
 		},
 		{
-			Name:        "Mantenibilidad",
-			ShortName:   "READABILITY",
-			Prompt:      maintainabilityPrompt(),
-			OutputPath:  "mantenibilidad.md",
-			Description: "Estructura, legibilidad y complejidad",
-			Status:      StatusPending,
+			Name:       "Readability",
+			ShortName:  "READABILITY",
+			Prompt:     maintainabilityPrompt(),
+			OutputPath: "mantenibilidad.md",
+			Status:     StatusPending,
 		},
 		{
-			Name:        "Testing",
-			ShortName:   "RELIABILITY",
-			Prompt:      testingPrompt(),
-			OutputPath:  "testing.md",
-			Description: "Tests, cobertura y casos borde",
-			Status:      StatusPending,
+			Name:       "Reliability",
+			ShortName:  "RELIABILITY",
+			Prompt:     testingPrompt(),
+			OutputPath: "testing.md",
+			Status:     StatusPending,
 		},
 		{
-			Name:        "Resiliencia",
-			ShortName:   "RESILIENCE",
-			Prompt:      resiliencePrompt(),
-			OutputPath:  "resilience.md",
-			Description: "Fallos, retries, logs y observabilidad",
-			Status:      StatusPending,
+			Name:       "Resilience",
+			ShortName:  "RESILIENCE",
+			Prompt:     resiliencePrompt(),
+			OutputPath: "resilience.md",
+			Status:     StatusPending,
 		},
 	}
 }

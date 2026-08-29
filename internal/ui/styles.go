@@ -14,6 +14,12 @@ var (
 	border       = lipgloss.Color("#3F3F46")
 	strongBorder = lipgloss.Color("#E4E4E7")
 
+	// severityAccent es la única excepción deliberada a la paleta en
+	// escala de grises: llama la atención sobre la severidad de un
+	// hallazgo (CRITICAL/HIGH/...) y la cantidad de hallazgos por sección
+	// en las tabs.
+	severityAccent = lipgloss.Color("#F59E0B")
+
 	// primary queda como alias de fg: lo usa el spinner, que antes tomaba
 	// el color de marca directamente.
 	primary = fg
@@ -74,12 +80,22 @@ var (
 			Bold(true).
 			Foreground(fg)
 
+	// tabIndicatorStyle pinta la línea debajo de la etapa seleccionada en
+	// la fila de tabs del header.
+	tabIndicatorStyle = lipgloss.NewStyle().
+				Foreground(strongBorder)
+
 	fileStyle = lipgloss.NewStyle().
 			Foreground(muted)
 
 	categoryStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(fg)
+			Foreground(severityAccent)
+
+	// badgeStyle pinta el contador de hallazgos "[N]" de cada tab.
+	badgeStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(severityAccent)
 
 	keyStyle = lipgloss.NewStyle().
 			Bold(true).

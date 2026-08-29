@@ -36,37 +36,28 @@ func (m Model) render() string {
 
 	header := m.renderHeader(totalWidth)
 
-	if m.err != nil {
+	// Un error antes de que arranque el pipeline (falló traer el PR o el
+	// diff) todavía no tiene tabs ni secciones que mostrar.
+	if m.err != nil && m.diff == "" {
 		content := lipgloss.JoinVertical(
 			lipgloss.Left,
 			header,
 			"",
-			m.renderError(totalWidth),
+			m.renderFatalError(),
 		)
 
 		return lipgloss.NewStyle().Padding(1, 2).Render(content)
 	}
 
-	asideWidth := int(float64(totalWidth) * 0.27)
-
-	if asideWidth < 27 {
-		asideWidth = 27
-	}
-
-	contentWidth := totalWidth - asideWidth - 1
-
-	aside := m.renderAside(asideWidth)
-	content := m.renderContent(contentWidth)
-
-	body := lipgloss.JoinHorizontal(lipgloss.Top, aside, " ", content)
-
-	footer := m.renderFooter()
+	content := m.renderContent(totalWidth)
+	footer := m.renderFooter(totalWidth)
 
 	ui := lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
 		"",
-		body,
+		content,
+		"",
 		"",
 		footer,
 	)
@@ -133,20 +124,20 @@ func (m Model) renderPreflightScreen(width int) string {
 // =============================================================================
 
 func (m Model) renderHeader(width int) string {
-	brand := brandBadgeStyle.Render(" code-review ") + "  " + dimStyle.Render(buildinfo.Version)
+	brand := brandStyle.Render("code-review") + "  " + dimStyle.Render(buildinfo.Version)
 
 	if m.prInfo == nil {
-		body := brand + "\n\n"
-		body += brandStyle.Render(fmt.Sprintf("%s #%d", m.pr.Repository(), m.pr.Number))
-		body += "\n\n"
-		body += m.spinner.View() + " "
-		body += mutedStyle.Render(m.loadingText)
+		box := normalPanel.Width(width).Render(
+			brandStyle.Render(fmt.Sprintf("%s #%d", m.pr.Repository(), m.pr.Number)) +
+				"\n\n" +
+				m.spinner.View() + " " + mutedStyle.Render(m.loadingText),
+		)
 
-		return normalPanel.Width(width).Render(body)
+		return brand + "\n\n" + box
 	}
 
 	line1 := fmt.Sprintf(
-		"%s %s",
+		"%s  %s",
 		brandStyle.Render(fmt.Sprintf("#%d", m.pr.Number)),
 		titleStyle.Render(m.prInfo.Title),
 	)
@@ -157,314 +148,243 @@ func (m Model) renderHeader(width int) string {
 		mutedStyle.Render("@"+m.prInfo.Author.Login),
 	)
 
-	line3 := fmt.Sprintf(
-		"%s %s %s   %s   %s   %s",
+	line3 := strings.Join([]string{
 		infoStyle.Render(m.prInfo.HeadRefName),
 		mutedStyle.Render("→"),
 		infoStyle.Render(m.prInfo.BaseRefName),
-		mutedStyle.Render(fmt.Sprintf("%d archivos", m.prInfo.ChangedFiles)),
+		mutedStyle.Render("·"),
+		mutedStyle.Render(fmt.Sprintf("%d files", m.prInfo.ChangedFiles)),
+		mutedStyle.Render("·"),
 		successStyle.Render(fmt.Sprintf("+%d", m.prInfo.Additions)),
 		errorStyle.Render(fmt.Sprintf("-%d", m.prInfo.Deletions)),
-	)
+	}, "  ")
 
-	body := brand + "\n\n" + strings.Join([]string{line1, line2, "", line3}, "\n")
+	prBox := normalPanel.Width(width).Render(line1 + "\n" + line2 + "\n\n" + line3)
+
+	body := brand + "\n\n" + prBox
 
 	if m.diff == "" {
 		body += "\n\n"
 		body += m.spinner.View() + " "
 		body += mutedStyle.Render(m.loadingText)
+
+		return body
 	}
 
-	return normalPanel.Width(width).Render(body)
+	body += "\n\n" + m.renderSectionTabs()
+
+	return body
 }
 
 // =============================================================================
-// ASIDE
+// SECTION TABS
 // =============================================================================
 
-func (m Model) renderAside(width int) string {
-	var lines []string
+// renderSectionTabs arma la fila horizontal de las 4 categorías con una
+// línea debajo de la seleccionada, al estilo de tabs de navegador.
+func (m Model) renderSectionTabs() string {
+	selected := sectionIndexForStage(m.selectedStage)
 
-	lines = append(lines, sectionStyle.Render("REVISIONES"), "")
+	var tabs strings.Builder
 
-	for i, stage := range m.stages {
-		selected := i == m.selectedStage
+	var underlineOffset, underlineWidth int
 
-		icon := m.stageIcon(stage)
+	for i, sec := range sections() {
+		if i > 0 {
+			tabs.WriteString("    ")
+		}
 
-		name := stage.Name
+		count := len(sectionFindings(stagesForSection(m.stages, sec)))
+		badge := fmt.Sprintf(" [%d]", count)
 
-		if selected {
-			name = selectedStyle.Render(name)
+		if i == selected {
+			underlineOffset = lipgloss.Width(tabs.String())
+			underlineWidth = lipgloss.Width(sec.Label + badge)
+
+			tabs.WriteString(selectedStyle.Render(sec.Label))
 		} else {
-			name = titleStyle.Render(name)
+			tabs.WriteString(mutedStyle.Render(sec.Label))
 		}
 
-		count := ""
-
-		if stage.Result != nil {
-			count = strconv.Itoa(len(stage.Result.Findings))
-		}
-
-		if stage.Status == review.StatusRunning {
-			count = "..."
-		}
-
-		row := fmt.Sprintf("%s %s", icon, name)
-
-		if count != "" {
-			row += " " + mutedStyle.Render("["+count+"]")
-		}
-
-		if selected {
-			row = selectedStyle.Render("▸") + " " + row
+		if count > 0 {
+			tabs.WriteString(badgeStyle.Render(badge))
 		} else {
-			row = "  " + row
+			tabs.WriteString(mutedStyle.Render(badge))
 		}
-
-		lines = append(lines, row)
-		lines = append(lines, "    "+mutedStyle.Render(stage.Description), "")
 	}
 
-	style := normalPanel
+	underline := strings.Repeat(" ", underlineOffset) +
+		tabIndicatorStyle.Render(strings.Repeat("─", underlineWidth))
 
-	if m.selectedStage >= 0 {
-		style = activePanel
-	}
-
-	return style.Width(width).Render(strings.Join(lines, "\n"))
-}
-
-func (m Model) stageIcon(stage review.Stage) string {
-	switch stage.Status {
-	case review.StatusRunning:
-		return m.spinner.View()
-
-	case review.StatusClean:
-		return successStyle.Render("✓")
-
-	case review.StatusFindings:
-		return warningStyle.Render("!")
-
-	case review.StatusError:
-		return errorStyle.Render("✗")
-
-	default:
-		return mutedStyle.Render("○")
-	}
+	return tabs.String() + "\n" + underline
 }
 
 // =============================================================================
 // CONTENT
 // =============================================================================
 
+// renderContent no usa ninguna caja: el título y subtítulo de la sección,
+// el estado (Analyzing/Review complete/Review failed) y el cuerpo respiran
+// directamente sobre el fondo, sin borde.
 func (m Model) renderContent(width int) string {
 	if m.prInfo == nil || m.diff == "" {
-		return normalPanel.Width(width).Render(mutedStyle.Render("Preparando el análisis..."))
+		return mutedStyle.Render("Preparando el análisis...")
 	}
 
-	stage := m.stages[m.selectedStage]
+	sec := m.currentSection()
+	stages := m.currentSectionStages()
+	status := sectionStatus(stages)
 
-	header := m.renderContentHeader(stage)
+	head := sectionStyle.Render(sec.Label) + "\n" + mutedStyle.Render(sec.Subtitle)
+	statusLine := m.renderStatusLine(status)
+	body := m.renderSectionBody(status)
 
-	var content string
-
-	if stage.Status == review.StatusRunning && stage.Result == nil {
-		content = m.renderClaudeContent(stage)
-	} else if m.mode == modeClaude {
-		content = m.renderClaudeContent(stage)
-	} else {
-		content = m.renderFindingContent(stage, width)
-	}
-
-	body := header + "\n\n" + content
-
-	return activePanel.Width(width).Render(body)
+	return head + "\n\n" + statusLine + "\n\n" + body
 }
 
-func (m Model) renderContentHeader(stage review.Stage) string {
-	var mode string
+func (m Model) renderStatusLine(status review.Status) string {
+	switch status {
+	case review.StatusRunning:
+		return m.spinner.View() + " " + titleStyle.Render("Analyzing")
 
-	if stage.Status == review.StatusRunning {
-		mode = m.spinner.View() + " ANALIZANDO"
-	} else if m.mode == modeClaude {
-		mode = rawOutputLabel(stage)
-	} else {
-		mode = "HALLAZGOS"
+	case review.StatusError:
+		return errorStyle.Render("✗ Review failed")
+
+	case review.StatusPending:
+		return mutedStyle.Render("○ Not started yet")
+
+	default:
+		return successStyle.Render("✓ Review complete")
 	}
-
-	return fmt.Sprintf("%s    %s", sectionStyle.Render(stage.Name), mutedStyle.Render(mode))
 }
 
-func rawOutputLabel(stage review.Stage) string {
-	if stage.Kind == review.KindCommand {
-		return "SALIDA DEL ESCANEO"
+// renderSectionBody decide qué mostrar debajo del status: mientras corre,
+// una línea de actividad; si el usuario apretó Tab, la salida cruda
+// (viewport); si ya terminó, los hallazgos (viewport); todo lo demás sale
+// directo del viewport, que refreshViewport ya dejó con el contenido
+// correcto para la sección/mode actual.
+func (m Model) renderSectionBody(status review.Status) string {
+	if status == review.StatusError {
+		return m.viewport.View()
 	}
 
-	return "CLAUDE OUTPUT"
-}
-
-// =============================================================================
-// FINDING CONTENT
-// =============================================================================
-
-func (m Model) renderFindingContent(stage review.Stage, width int) string {
-	if stage.Status == review.StatusPending {
-		return mutedStyle.Render("Esta revisión todavía no comenzó.")
+	if m.mode == modeClaude {
+		return m.viewport.View()
 	}
 
-	if stage.Status == review.StatusError {
-		return errorStyle.Render("No pude completar esta revisión.")
+	if status == review.StatusRunning {
+		return "  " + mutedStyle.Render(m.activity)
 	}
 
-	if stage.Result == nil {
-		return mutedStyle.Render("No hay un resultado disponible.")
-	}
-
-	if len(stage.Result.Findings) == 0 {
-		body := successStyle.Render("✓ Sin observaciones")
-
-		if stage.Result.Summary != "" {
-			body += "\n\n" + mutedStyle.Render(stage.Result.Summary)
-		}
-
-		return body
-	}
-
-	index := stage.SelectedFinding
-
-	if index < 0 {
-		index = 0
-	}
-
-	if index >= len(stage.Result.Findings) {
-		index = len(stage.Result.Findings) - 1
-	}
-
-	finding := stage.Result.Findings[index]
-
-	var body strings.Builder
-
-	body.WriteString(categoryStyle.Render(finding.Category))
-	body.WriteString("\n")
-	body.WriteString(mutedStyle.Render(fmt.Sprintf("Hallazgo %d de %d", index+1, len(stage.Result.Findings))))
-	body.WriteString("\n\n")
-
-	location := finding.File
-
-	if finding.Line > 0 {
-		location += ":" + strconv.Itoa(finding.Line)
-	}
-
-	body.WriteString(fileStyle.Render(location))
-	body.WriteString("\n\n")
-
-	if finding.Title != "" {
-		body.WriteString(titleStyle.Render(finding.Title))
-		body.WriteString("\n\n")
-	}
-
-	for _, detail := range finding.Details {
-		if detail.Value == "" {
-			continue
-		}
-
-		body.WriteString(mutedStyle.Render(detail.Label + ":"))
-		body.WriteString("\n")
-		body.WriteString(wrapText(detail.Value, width-8))
-		body.WriteString("\n\n")
-	}
-
-	if finding.Comment != "" {
-		body.WriteString(titleStyle.Render("Comentario"))
-		body.WriteString("\n")
-		body.WriteString(wrapText(finding.Comment, width-8))
-		body.WriteString("\n\n")
-	}
-
-	if finding.Suggestion != "" {
-		body.WriteString(titleStyle.Render("Sugerencia"))
-		body.WriteString("\n")
-		body.WriteString(wrapText(finding.Suggestion, width-8))
-	}
-
-	return body.String()
-}
-
-// =============================================================================
-// CLAUDE OUTPUT
-// =============================================================================
-
-func (m Model) renderClaudeContent(stage review.Stage) string {
-	if stage.RawOutput == "" {
-		if stage.Kind == review.KindCommand {
-			if stage.Status == review.StatusPending {
-				return mutedStyle.Render("Este chequeo todavía no se ejecutó.")
-			}
-
-			return m.spinner.View() + " " + mutedStyle.Render("Escaneando dependencias...")
-		}
-
-		if stage.Status == review.StatusPending {
-			return mutedStyle.Render("Claude todavía no ejecutó esta revisión.")
-		}
-
-		return m.spinner.View() + " " + mutedStyle.Render("Esperando la respuesta de Claude...")
+	if status == review.StatusPending {
+		return mutedStyle.Render("Esta sección todavía no arrancó.")
 	}
 
 	return m.viewport.View()
+}
+
+// renderFindingsText arma el documento scrolleable con todos los hallazgos
+// de la sección apilados (reemplaza la vieja navegación hallazgo a
+// hallazgo: ahora se scrollea con ↑ ↓ como el resto del contenido).
+func (m Model) renderFindingsText(stages []review.Stage, width int) string {
+	findings := sectionFindings(stages)
+
+	if len(findings) == 0 {
+		return successStyle.Render("No findings.")
+	}
+
+	label := "findings"
+
+	if len(findings) == 1 {
+		label = "finding"
+	}
+
+	var b strings.Builder
+
+	b.WriteString(mutedStyle.Render(fmt.Sprintf("%d %s", len(findings), label)))
+
+	for _, finding := range findings {
+		b.WriteString("\n\n\n")
+		b.WriteString(categoryStyle.Render(strings.ToUpper(finding.Category)))
+
+		if finding.Title != "" {
+			b.WriteString("\n\n")
+			b.WriteString(titleStyle.Render(finding.Title))
+		}
+
+		location := finding.File
+
+		if finding.Line > 0 {
+			location += ":" + strconv.Itoa(finding.Line)
+		}
+
+		if location != "" {
+			b.WriteString("\n\n")
+			b.WriteString(fileStyle.Render(location))
+		}
+
+		if finding.Comment != "" {
+			b.WriteString("\n\n")
+			b.WriteString(wrapText(finding.Comment, width))
+		}
+
+		for _, detail := range finding.Details {
+			if detail.Value == "" {
+				continue
+			}
+
+			b.WriteString("\n\n")
+			b.WriteString(mutedStyle.Render(detail.Label + ":"))
+			b.WriteString("\n")
+			b.WriteString(wrapText(detail.Value, width))
+		}
+
+		if finding.Suggestion != "" {
+			b.WriteString("\n\n")
+			b.WriteString(titleStyle.Render("Suggestion"))
+			b.WriteString("\n")
+			b.WriteString(wrapText(finding.Suggestion, width))
+		}
+	}
+
+	return b.String()
 }
 
 // =============================================================================
 // FOOTER
 // =============================================================================
 
-func (m Model) renderFooter() string {
-	mode := "Hallazgos"
+func (m Model) renderFooter(width int) string {
+	rule := lipgloss.NewStyle().Foreground(border).Render(strings.Repeat("─", width))
+
+	mode := "Findings"
 
 	if m.mode == modeClaude {
-		mode = "Salida"
-
-		if m.selectedStage >= 0 && m.selectedStage < len(m.stages) &&
-			m.stages[m.selectedStage].Kind != review.KindCommand {
-
-			mode = "Claude"
-		}
+		mode = "Output"
 	}
 
-	var controls []string
-
-	controls = append(controls, keyStyle.Render("← →")+" revisión")
-
-	if m.mode == modeClaude {
-		controls = append(
-			controls,
-			keyStyle.Render("↑ ↓")+" scroll",
-			keyStyle.Render("PgUp PgDn")+" página",
-		)
-	} else {
-		controls = append(controls, keyStyle.Render("↑ ↓")+" hallazgo")
+	controls := []string{
+		keyStyle.Render("← →") + " section",
+		keyStyle.Render("↑ ↓") + " scroll",
+		keyStyle.Render("Tab") + " " + mode,
+		keyStyle.Render("q") + " quit",
 	}
 
-	controls = append(
-		controls,
-		keyStyle.Render("Tab")+" "+mode,
-		keyStyle.Render("q")+" salir",
-	)
-
-	return mutedStyle.Render(strings.Join(controls, "   "))
+	return rule + "\n\n" + mutedStyle.Render(strings.Join(controls, "   "))
 }
 
 // =============================================================================
 // ERROR
 // =============================================================================
 
-func (m Model) renderError(width int) string {
-	return normalPanel.Width(width).Render(
-		errorStyle.Bold(true).Render("✗ No pude completar la revisión") +
-			"\n\n" +
-			errorStyle.Render(m.err.Error()),
-	)
+// renderFatalError se usa únicamente para errores previos a que arranque el
+// pipeline (no pudimos traer el PR o el diff), donde todavía no hay tabs ni
+// secciones que mostrar. Una vez que el pipeline arrancó, el error de una
+// sección se ve dentro de renderContent/renderSectionBody.
+func (m Model) renderFatalError() string {
+	return errorStyle.Render("✗ Review failed") +
+		"\n\n" +
+		mutedStyle.Render(m.err.Error())
 }
 
 // =============================================================================
