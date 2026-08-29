@@ -62,7 +62,7 @@ func TestRenderInlineReviewIncludesDiffAndComment(t *testing.T) {
 	}
 }
 
-func TestRenderFilesChangedAddsMockInlineComment(t *testing.T) {
+func TestRenderFilesChangedAddsExplicitInlineComment(t *testing.T) {
 	diff := strings.Join([]string{
 		"diff --git a/internal/app.go b/internal/app.go",
 		"--- a/internal/app.go",
@@ -74,7 +74,17 @@ func TestRenderFilesChangedAddsMockInlineComment(t *testing.T) {
 		"",
 	}, "\n")
 
-	rendered := stripANSI(renderFilesChanged(diff, nil, 100))
+	findings := []review.Finding{
+		{
+			File:     "internal/app.go",
+			Line:     2,
+			Category: "OWASP TOP 10",
+			Title:    "Rule #1",
+			Comment:  "Este es el lugar donde aparecería una observación del review async.",
+		},
+	}
+
+	rendered := stripANSI(renderFilesChanged(diff, findings, 100))
 
 	for _, expected := range []string{
 		"+ func mockTarget() {}",

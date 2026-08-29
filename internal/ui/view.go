@@ -75,7 +75,7 @@ func (m Model) renderPreflightScreen(width int) string {
 	if len(m.dependencyResults) == 0 {
 		lines = append(
 			lines,
-			m.spinner.View()+" "+mutedStyle.Render("Comprobando GitHub CLI..."),
+			m.spinner.View()+" "+mutedStyle.Render("Comprobando GitHub CLI y Claude..."),
 		)
 	} else {
 		for _, dep := range m.dependencyResults {
@@ -228,10 +228,29 @@ func (m Model) renderStickyLoadingBar(width int) string {
 		return ""
 	}
 
-	status := m.spinner.View() + " " + titleStyle.Render("Loading review comments")
-	detail := mutedStyle.Render("async checks are running · diff stays available")
+	done, total := promptStageProgress(m.stages)
+	status := m.spinner.View() + " " + titleStyle.Render(fmt.Sprintf("Loading review comments %d/%d", done, total))
+	detail := mutedStyle.Render("Claude checks run in parallel · diff stays available")
 
 	return loadingBarStyle.Width(width).Render(status + "  " + detail)
+}
+
+func promptStageProgress(stages []review.Stage) (int, int) {
+	var done, total int
+
+	for _, stage := range stages {
+		if stage.Kind != review.KindPrompt {
+			continue
+		}
+
+		total++
+
+		if stage.Status != review.StatusRunning && stage.Status != review.StatusPending {
+			done++
+		}
+	}
+
+	return done, total
 }
 
 func (m Model) renderStatusLine(status review.Status) string {

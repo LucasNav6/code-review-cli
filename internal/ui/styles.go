@@ -5,23 +5,24 @@ import "charm.land/lipgloss/v2"
 // Paleta dark inspirada en GitHub: fondo profundo, bordes suaves y acentos
 // mínimos para estado, branch chips y líneas de diff.
 var (
-	fg             = lipgloss.Color("#FAFAFA")
-	bg             = lipgloss.Color("#09090B")
-	muted          = lipgloss.Color("#8B949E")
-	dim            = lipgloss.Color("#6E7681")
-	border         = lipgloss.Color("#30363D")
-	strongBorder   = lipgloss.Color("#58A6FF")
-	panelBg        = lipgloss.Color("#0D1117")
-	headerBg       = lipgloss.Color("#161B22")
-	addedBg        = lipgloss.Color("#12261F")
-	deletedBg      = lipgloss.Color("#2D1517")
-	commentLine    = lipgloss.Color("#8B949E")
-	commentLightBg = lipgloss.Color("#DBEAFE")
-	commentDarkFg  = lipgloss.Color("#0F172A")
-	mergedBg       = lipgloss.Color("#8957E5")
-	branchBg       = lipgloss.Color("#13233A")
-	branchFg       = lipgloss.Color("#58A6FF")
-	severityAccent = lipgloss.Color("#F0883E")
+	fg              = lipgloss.Color("#FAFAFA")
+	bg              = lipgloss.Color("#09090B")
+	muted           = lipgloss.Color("#8B949E")
+	dim             = lipgloss.Color("#6E7681")
+	border          = lipgloss.Color("#30363D")
+	strongBorder    = lipgloss.Color("#58A6FF")
+	panelBg         = lipgloss.Color("#0D1117")
+	headerBg        = lipgloss.Color("#161B22")
+	addedBg         = lipgloss.Color("#12261F")
+	deletedBg       = lipgloss.Color("#2D1517")
+	commentLine     = lipgloss.Color("#8B949E")
+	commentBg       = lipgloss.Color("#0B1220")
+	commentHeaderBg = lipgloss.Color("#13233A")
+	commentFg       = lipgloss.Color("#D6E2FF")
+	mergedBg        = lipgloss.Color("#8957E5")
+	branchBg        = lipgloss.Color("#13233A")
+	branchFg        = lipgloss.Color("#58A6FF")
+	severityAccent  = lipgloss.Color("#F0883E")
 
 	// primary queda como alias de fg: lo usa el spinner, que antes tomaba
 	// el color de marca directamente.
@@ -177,8 +178,8 @@ var (
 	commentPanel = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(strongBorder).
-			Foreground(commentDarkFg).
-			Background(commentLightBg).
+			Foreground(commentFg).
+			Background(commentBg).
 			Padding(0, 1)
 
 	commentLineStyle = lipgloss.NewStyle().
@@ -186,13 +187,13 @@ var (
 
 	commentHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(commentDarkFg).
-				Background(lipgloss.Color("#BFDBFE")).
+				Foreground(lipgloss.Color("#CDE3FF")).
+				Background(commentHeaderBg).
 				Padding(0, 1)
 
 	commentBodyStyle = lipgloss.NewStyle().
-				Foreground(commentDarkFg)
+				Foreground(commentFg)
 
 	commentMutedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#334155"))
+				Foreground(lipgloss.Color("#8EA4C8"))
 )

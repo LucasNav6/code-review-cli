@@ -46,7 +46,7 @@ Ejemplo de tono:
 
 > Acá estaría bueno validar que el usuario tenga acceso al recurso antes de devolverlo. Tal como está, el identificador parece ser suficiente para consultar información de otro usuario, lo que podría derivar en un caso de BOLA (API1:2023).
 
-## Formato de salida
+## Formato de salida obligatorio
 
 Si NO encontrás ningún problema real relacionado con estas categorías, respondé exactamente:
 
@@ -54,25 +54,39 @@ NO_FINDINGS
 
 No agregues ninguna otra explicación.
 
-Si encontrás uno o más problemas, respondé solamente con Markdown utilizando este formato:
+Si encontrás uno o más problemas, respondé solamente con JSON válido, sin Markdown, sin bloque de código y sin texto extra.
 
-# Revisión de seguridad
+Usá exactamente esta estructura:
 
-## Hallazgo 1
+{
+  "summary": "Resumen breve de los hallazgos de seguridad.",
+  "findings": [
+    {
+      "file": "ruta/al/archivo.ts",
+      "line": 123,
+      "category": "OWASP API1:2023",
+      "title": "Broken Object Level Authorization",
+      "comment": "Acá estaría bueno validar que el usuario tenga acceso a este recurso antes de continuar. Actualmente parece posible obtenerlo únicamente mediante su identificador, lo que podría permitir acceder a información perteneciente a otro usuario.",
+      "suggestion": "Validar ownership o permisos sobre el recurso antes de devolverlo.",
+      "details": [
+        {
+          "label": "OWASP",
+          "value": "API1:2023 - Broken Object Level Authorization"
+        }
+      ]
+    }
+  ]
+}
 
-**archivo:** ruta/al/archivo.ts
-**línea:** 123
-**OWASP:** API1:2023 - Broken Object Level Authorization
-**comentario:** Acá estaría bueno validar que el usuario tenga acceso a este recurso antes de continuar. Actualmente parece posible obtenerlo únicamente mediante su identificador, lo que podría permitir acceder a información perteneciente a otro usuario.
+Reglas para ubicar comentarios:
 
-## Hallazgo 2
-
-**archivo:** ruta/al/archivo.ts
-**línea:** 456
-**OWASP:** API4:2023 - Unrestricted Resource Consumption
-**comentario:** Esta consulta parece permitir una cantidad de resultados sin límite. Estaría bueno agregar algún mecanismo de paginación o un máximo razonable para evitar un consumo excesivo de recursos.
-
-No escribas introducciones, conclusiones ni texto fuera de este formato.
+* `file` debe ser exactamente la ruta del archivo tal como aparece en el diff, sin prefijos `a/` ni `b/`.
+* `line` debe ser el número de línea nueva del PR, preferentemente una línea agregada (`+`) o modificada.
+* `category` debe ser corta y apta para mostrarse como título inline.
+* `title` debe ser específico y breve.
+* `comment` debe ser el texto principal que se mostrará pegado al diff.
+* `suggestion` debe existir solo si hay una acción concreta y útil.
+* `details` debe incluir datos auxiliares como la regla OWASP, no repetir el comentario.
 
 A continuación se encuentra el diff del Pull Request:
 

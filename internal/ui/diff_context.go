@@ -71,11 +71,6 @@ func renderFilesChanged(diff string, findings []review.Finding, width int) strin
 		return mutedStyle.Render("No diff content available.")
 	}
 
-	if len(findings) == 0 {
-		groups = mockFindingGroups(blocks)
-		markCommentLines(blocks, groups)
-	}
-
 	var b strings.Builder
 
 	b.WriteString(mutedStyle.Render(fmt.Sprintf("%d files changed", len(blocks))))
@@ -353,9 +348,9 @@ func renderFileComments(findings []review.Finding, width int) string {
 }
 
 func renderInlineComment(finding review.Finding, width int) string {
-	const gutterWidth = 10
+	const gutterWidth = 12
 
-	commentWidth := max(30, width-gutterWidth)
+	commentWidth := min(max(52, width-gutterWidth-4), 110)
 	comment := renderReviewComment(finding, commentWidth)
 	prefix := commentLineStyle.Render(strings.Repeat(" ", gutterWidth))
 
@@ -367,30 +362,6 @@ func renderInlineComment(finding review.Finding, width int) string {
 	}
 
 	return strings.TrimRight(b.String(), "\n")
-}
-
-func mockFindingGroups(blocks []diffBlock) map[string][]review.Finding {
-	for _, block := range blocks {
-		for _, line := range block.Lines {
-			if line.NewLine <= 0 || line.Kind != '+' {
-				continue
-			}
-
-			return map[string][]review.Finding{
-				block.File: {
-					{
-						File:     block.File,
-						Line:     line.NewLine,
-						Category: "OWASP TOP 10",
-						Title:    "Rule #1",
-						Comment:  "Este es el lugar donde aparecería una observación del review async, pegada al contexto exacto del cambio.",
-					},
-				},
-			}
-		}
-	}
-
-	return map[string][]review.Finding{}
 }
 
 func renderReviewComment(finding review.Finding, width int) string {

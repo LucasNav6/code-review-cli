@@ -92,7 +92,7 @@ Por ejemplo:
 
 > Si esta llamada falla hoy terminamos devolviendo el error, pero perdemos bastante contexto sobre qué integración estaba procesándose. Capaz conviene sumar el identificador de la integración al log para que sea más fácil rastrearlo en producción.
 
-## Formato de salida
+## Formato de salida obligatorio
 
 Si NO encontrás ningún problema relevante, respondé exactamente:
 
@@ -100,29 +100,43 @@ NO_FINDINGS
 
 No agregues ningún otro texto.
 
-Si encontrás uno o más problemas, respondé solamente con Markdown utilizando este formato:
+Si encontrás uno o más problemas, respondé solamente con JSON válido, sin Markdown, sin bloque de código y sin texto extra.
 
-# Comportamiento ante Fallos y Observabilidad
+Usá exactamente esta estructura:
 
-## Hallazgo 1
+{
+  "summary": "Resumen breve de los hallazgos de resiliencia y observabilidad.",
+  "findings": [
+    {
+      "file": "ruta/al/archivo.ts",
+      "line": 123,
+      "category": "RESILIENCE",
+      "title": "Falta contexto operativo al propagar el error",
+      "comment": "Acá estaría bueno conservar un poco más de contexto cuando falla la llamada externa. Incluir el identificador de la integración permitiría rastrear el problema mucho más rápido en producción.",
+      "suggestion": "Propagar o loguear el identificador de integración junto con el error, evitando payloads sensibles.",
+      "details": [
+        {
+          "label": "Comportamiento ante fallo",
+          "value": "La operación falla, pero se pierde contexto útil."
+        },
+        {
+          "label": "Observabilidad",
+          "value": "El error no permite identificar qué recurso estaba siendo procesado."
+        }
+      ]
+    }
+  ]
+}
 
-**archivo:** ruta/al/archivo.ts
-**línea:** 123
-**categoría:** RESILIENCE
-**comportamiento ante fallo:** Si la API externa falla, la operación termina inmediatamente sin un mecanismo de recuperación.
-**observabilidad:** El error se propaga sin información que permita identificar qué integración o recurso estaba siendo procesado.
-**comentario:** Acá estaría bueno conservar un poco más de contexto cuando falla la llamada externa. Por ejemplo, incluir el identificador de la integración permitiría rastrear el problema mucho más rápido en producción.
+Reglas para ubicar comentarios:
 
-## Hallazgo 2
-
-**archivo:** ruta/al/archivo.ts
-**línea:** 85
-**categoría:** RESILIENCE
-**comportamiento ante fallo:** Se realiza un retry sin límite explícito, lo que podría mantener la operación ejecutándose indefinidamente ante un fallo persistente.
-**observabilidad:** Existen logs del error, pero no permiten saber cuántos intentos se realizaron.
-**comentario:** Capaz conviene limitar la cantidad de intentos y registrar el número de retry. Así evitamos quedar atrapados ante un error permanente y además queda más claro qué pasó al revisar los logs.
-
-No escribas introducciones, conclusiones ni contenido fuera de este formato.
+* `file` debe ser exactamente la ruta del archivo tal como aparece en el diff, sin prefijos `a/` ni `b/`.
+* `line` debe ser el número de línea nueva del PR, preferentemente una línea agregada (`+`) o modificada.
+* `category` debe ser corta y apta para mostrarse como título inline.
+* `title` debe ser específico y breve.
+* `comment` debe ser el texto principal que se mostrará pegado al diff.
+* `suggestion` debe existir solo si hay una acción concreta y útil.
+* `details` debe incluir comportamiento ante fallo u observabilidad, no repetir el comentario.
 
 A continuación se encuentra el diff del Pull Request:
 

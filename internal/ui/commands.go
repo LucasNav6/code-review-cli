@@ -72,6 +72,21 @@ func startPromptReviewCmd(stage review.Stage, diff string, stageIndex int) tea.C
 	}
 }
 
+func startPromptReviewsCmd(diff string) tea.Cmd {
+	stages := review.DefaultStages()
+	commands := make([]tea.Cmd, 0, len(stages))
+
+	for i, stage := range stages {
+		if stage.Kind != review.KindPrompt {
+			continue
+		}
+
+		commands = append(commands, startPromptReviewCmd(stage, diff, i))
+	}
+
+	return tea.Batch(commands...)
+}
+
 // runDependencyScanCmd corre el escaneo de dependencias con OSV-Scanner.
 // No es incremental (no hay streaming): corre, y devuelve el resultado ya
 // armado de una sola vez.

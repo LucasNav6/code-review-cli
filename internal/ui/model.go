@@ -77,7 +77,7 @@ func New(pr githubpr.PullRequest) Model {
 		mode:           modeFindings,
 		spinner:        s,
 		viewport:       vp,
-		loadingText:    "Validando GitHub CLI...",
+		loadingText:    "Validando GitHub CLI y Claude...",
 	}
 }
 

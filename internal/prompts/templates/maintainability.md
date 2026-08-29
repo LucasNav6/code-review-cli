@@ -48,7 +48,7 @@ Por ejemplo:
 
 > Esta condición quedó bastante cargada y cuesta entender rápidamente qué casos contempla. Capaz conviene separar parte de la lógica en una función con un nombre descriptivo para que quede más fácil de mantener.
 
-## Formato de salida
+## Formato de salida obligatorio
 
 Si NO encontrás ningún problema relevante, respondé exactamente:
 
@@ -56,27 +56,39 @@ NO_FINDINGS
 
 No agregues ninguna otra explicación.
 
-Si encontrás uno o más problemas, respondé solamente con Markdown utilizando este formato:
+Si encontrás uno o más problemas, respondé solamente con JSON válido, sin Markdown, sin bloque de código y sin texto extra.
 
-# Estructura y Mantenibilidad
+Usá exactamente esta estructura:
 
-## Hallazgo 1
+{
+  "summary": "Resumen breve de los hallazgos de legibilidad y mantenibilidad.",
+  "findings": [
+    {
+      "file": "ruta/al/archivo.ts",
+      "line": 123,
+      "category": "READABILITY",
+      "title": "Condición difícil de seguir",
+      "comment": "Esta condición quedó bastante cargada y cuesta entender rápidamente qué casos contempla.",
+      "suggestion": "Separar parte de la lógica en una función con un nombre descriptivo.",
+      "details": [
+        {
+          "label": "Impacto",
+          "value": "Reduce claridad y aumenta el costo de cambios futuros."
+        }
+      ]
+    }
+  ]
+}
 
-**archivo:** ruta/al/archivo.ts
-**línea:** 123
-**categoría:** READABILITY
-**hallazgo:** La condición combina demasiadas reglas y resulta difícil entender qué caso representa cada una.
-**sugerencia de refactor:** Podría extraerse parte de la lógica a funciones con nombres descriptivos para reducir la complejidad del bloque principal.
+Reglas para ubicar comentarios:
 
-## Hallazgo 2
-
-**archivo:** ruta/al/archivo.ts
-**línea:** 85
-**categoría:** READABILITY
-**hallazgo:** Se está utilizando el valor `86400` directamente y no queda claro qué representa al leer el código.
-**sugerencia de refactor:** Podría reemplazarse por una constante con un nombre como `SECONDS_PER_DAY`.
-
-No escribas introducciones, conclusiones ni contenido fuera de este formato.
+* `file` debe ser exactamente la ruta del archivo tal como aparece en el diff, sin prefijos `a/` ni `b/`.
+* `line` debe ser el número de línea nueva del PR, preferentemente una línea agregada (`+`) o modificada.
+* `category` debe ser corta y apta para mostrarse como título inline.
+* `title` debe ser específico y breve.
+* `comment` debe ser el texto principal que se mostrará pegado al diff.
+* `suggestion` debe existir solo si hay una acción concreta y útil.
+* `details` debe incluir datos auxiliares, no repetir el comentario.
 
 A continuación se encuentra el diff del Pull Request:
 

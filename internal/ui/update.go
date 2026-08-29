@@ -59,10 +59,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.executingStage = -1
 		m.loadingText = "Loading review comments..."
 		m.reviewLoading = true
+		m.markPromptStagesRunning()
 
 		m.refreshViewport()
 
-		return m, nil
+		return m, startPromptReviewsCmd(m.diff)
 
 	case claudeStartedMsg:
 		m.claudeChannel = msg.channel
@@ -72,18 +73,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case claudeChunkMsg:
 		if msg.stage >= 0 && msg.stage < len(m.stages) {
 			m.stages[msg.stage].RawOutput += msg.text
-
-			if m.mode == modeClaude && sectionIndexForStage(msg.stage) == sectionIndexForStage(m.selectedStage) {
-				m.refreshViewport()
-			}
 		}
 
-		return m, waitForClaudeEvent(msg.stage, m.claudeChannel)
+		return m, waitForClaudeEvent(msg.stage, msg.channel)
 
 	case claudeStatusMsg:
 		m.activity = msg.text
 
-		return m, waitForClaudeEvent(msg.stage, m.claudeChannel)
+		return m, waitForClaudeEvent(msg.stage, msg.channel)
 
 	case claudeFinishedMsg:
 		return m.finishPromptReview(msg.stage, msg.result)
@@ -96,7 +93,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stages[msg.stage].Status = review.StatusError
 		}
 
-		m.err = msg.err
+		m.activity = msg.err.Error()
+		m.finishReviewIfAllPromptStagesDone()
 
 		m.refreshViewport()
 
@@ -176,6 +174,14 @@ func (m *Model) resizeViewport() {
 	m.refreshViewport()
 }
 
+func (m *Model) markPromptStagesRunning() {
+	for i := range m.stages {
+		if m.stages[i].Kind == review.KindPrompt {
+			m.stages[i].Status = review.StatusRunning
+		}
+	}
+}
+
 // refreshViewport recalcula el contenido scrolleable principal.
 func (m *Model) refreshViewport() {
 	if m.err != nil {
@@ -193,6 +199,18 @@ func (m *Model) refreshViewport() {
 
 	m.viewport.SetContent(renderFilesChanged(m.diff, allFindings(m.stages), m.viewport.Width()))
 	m.viewport.GotoTop()
+}
+
+func (m *Model) finishReviewIfAllPromptStagesDone() {
+	for _, stage := range m.stages {
+		if stage.Kind == review.KindPrompt && stage.Status == review.StatusRunning {
+			return
+		}
+	}
+
+	m.done = true
+	m.reviewLoading = false
+	m.loadingText = "Review comments loaded."
 }
 
 // finishPromptReview interpreta la respuesta cruda de Claude para una etapa
@@ -214,7 +232,42 @@ func (m Model) finishPromptReview(stageIndex int, rawResult string) (tea.Model, 
 		result = review.FallbackResult(rawResult, stage.ShortName)
 	}
 
-	return m.applyStageResult(stageIndex, result, rawResult)
+	return m.applyParallelStageResult(stageIndex, result, rawResult)
+}
+
+func (m Model) applyParallelStageResult(stageIndex int, result *review.Result, rawOutput string) (tea.Model, tea.Cmd) {
+	if stageIndex < 0 || stageIndex >= len(m.stages) {
+		return m, nil
+	}
+
+	stage := &m.stages[stageIndex]
+	stage.Result = result
+
+	if strings.TrimSpace(rawOutput) != "" {
+		stage.RawOutput = rawOutput
+	}
+
+	if len(result.Findings) == 0 {
+		stage.Status = review.StatusClean
+
+		if err := removeOldOutput(stage.OutputPath); err != nil {
+			m.err = err
+			return m, nil
+		}
+	} else {
+		stage.Status = review.StatusFindings
+
+		markdown := review.RenderMarkdown(stage.Name, result)
+		if err := os.WriteFile(stage.OutputPath, []byte(markdown), 0o644); err != nil {
+			m.err = fmt.Errorf("no pude crear %s: %w", stage.OutputPath, err)
+			return m, nil
+		}
+	}
+
+	m.finishReviewIfAllPromptStagesDone()
+	m.refreshViewport()
+
+	return m, nil
 }
 
 // applyStageResult guarda el resultado ya estructurado de una etapa (venga

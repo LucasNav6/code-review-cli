@@ -69,7 +69,7 @@ Por ejemplo:
 
 > El caso principal está cubierto, pero acá sumaría un test cuando la lista viene vacía. Ese escenario toma una rama distinta y sería fácil que una modificación futura genere una regresión.
 
-## Formato de salida
+## Formato de salida obligatorio
 
 Si no hay observaciones relevantes, respondé exactamente:
 
@@ -77,33 +77,47 @@ NO_FINDINGS
 
 No agregues ningún otro texto.
 
-Si hay observaciones, respondé únicamente con Markdown:
+Si hay observaciones, respondé solamente con JSON válido, sin Markdown, sin bloque de código y sin texto extra.
 
-# Testing y Casos de borde
+Usá exactamente esta estructura:
 
-## Hallazgo 1
+{
+  "summary": "Resumen breve de los hallazgos de testing y confiabilidad.",
+  "findings": [
+    {
+      "file": "ruta/al/archivo.ts",
+      "line": 123,
+      "category": "RELIABILITY",
+      "title": "Falta cubrir un caso borde",
+      "comment": "El camino principal está cubierto, pero sumaría un test para la entrada vacía porque toma una rama distinta de la lógica agregada.",
+      "suggestion": "Agregar un test con entrada vacía y otro para el error de la dependencia externa.",
+      "details": [
+        {
+          "label": "Requiere tests",
+          "value": "Sí"
+        },
+        {
+          "label": "Tests cubiertos",
+          "value": "Caso exitoso con una entidad válida."
+        },
+        {
+          "label": "Tests faltantes",
+          "value": "Entidad inexistente y error de dependencia externa."
+        }
+      ]
+    }
+  ]
+}
 
-**archivo:** ruta/al/archivo.ts
-**línea:** 123
-**categoría:** RELIABILITY
-**requiere tests:** Sí
-**tests cubiertos:** Caso exitoso con una entidad válida y respuesta esperada.
-**tests faltantes:** No se encontró cobertura para el caso donde la entidad no existe ni para el error devuelto por la dependencia externa.
-**caso borde:** Sería conveniente cubrir una entrada vacía, porque toma una rama diferente de la lógica principal.
-**comentario:** El camino principal está bien cubierto. Sumaria estos escenarios porque afectan ramas nuevas introducidas en este cambio y podrían generar regresiones difíciles de detectar.
+Reglas para ubicar comentarios:
 
-## Hallazgo 2
-
-**archivo:** ruta/al/archivo.ts
-**línea:** 85
-**categoría:** RELIABILITY
-**requiere tests:** Sí
-**tests cubiertos:** No se encontraron tests asociados en este Pull Request.
-**tests faltantes:** Caso exitoso, valor límite y escenario de error.
-**caso borde:** El valor `0` debería validarse porque modifica el resultado de la condición agregada.
-**comentario:** Como esta modificación cambia comportamiento, estaría bueno acompañarla con algunos tests básicos. Con cubrir el camino principal, el valor límite y el error ya quedaría bastante protegido.
-
-No escribas introducciones, conclusiones ni contenido fuera de este formato.
+* `file` debe ser exactamente la ruta del archivo tal como aparece en el diff, sin prefijos `a/` ni `b/`.
+* `line` debe ser el número de línea nueva del PR, preferentemente una línea agregada (`+`) o modificada.
+* `category` debe ser corta y apta para mostrarse como título inline.
+* `title` debe ser específico y breve.
+* `comment` debe ser el texto principal que se mostrará pegado al diff.
+* `suggestion` debe existir solo si hay una acción concreta y útil.
+* `details` debe incluir cobertura, casos faltantes o casos borde, no repetir el comentario.
 
 A continuación se encuentra el diff del Pull Request:
 

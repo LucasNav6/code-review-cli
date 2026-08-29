@@ -26,13 +26,15 @@ type claudeStartedMsg struct {
 }
 
 type claudeChunkMsg struct {
-	stage int
-	text  string
+	stage   int
+	text    string
+	channel <-chan claude.Event
 }
 
 type claudeStatusMsg struct {
-	stage int
-	text  string
+	stage   int
+	text    string
+	channel <-chan claude.Event
 }
 
 type claudeFinishedMsg struct {
@@ -73,10 +75,10 @@ func waitForClaudeEvent(stage int, channel <-chan claude.Event) tea.Cmd {
 
 		switch event.Type {
 		case claude.EventChunk:
-			return claudeChunkMsg{stage: stage, text: event.Text}
+			return claudeChunkMsg{stage: stage, text: event.Text, channel: channel}
 
 		case claude.EventStatus:
-			return claudeStatusMsg{stage: stage, text: event.Text}
+			return claudeStatusMsg{stage: stage, text: event.Text, channel: channel}
 
 		case claude.EventFinished:
 			return claudeFinishedMsg{stage: stage, result: event.Result}
