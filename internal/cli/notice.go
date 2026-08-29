@@ -30,15 +30,15 @@ func printUpdateNoticeIfAny() {
 func renderUpdateCard(result *update.CheckResult) string {
 	inner := fmt.Sprintf(
 		"%s\n\n%s  →  %s\n\n%s",
-		warningStyle.Bold(true).Render("Nueva versión de code-review disponible"),
-		mutedStyle.Render(result.Current),
-		successStyle.Bold(true).Render(result.Latest),
-		mutedStyle.Render("Ejecutá ")+brandStyle.Render("code-review upgrade")+mutedStyle.Render(" para actualizar"),
+		updateStyle.Render("Nueva versión de code-review disponible"),
+		updateStyle.Render(result.Current),
+		updateStyle.Render(result.Latest),
+		updateStyle.Render("Ejecutá code-review upgrade para actualizar"),
 	)
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.ThickBorder()).
-		BorderForeground(fg).
+		BorderForeground(updateAccent).
 		Padding(1, 2).
 		Render(inner)
 }

@@ -1,6 +1,3 @@
-// Package cli define la interfaz de línea de comandos de code-review:
-// parseo de flags, subcomandos (upgrade) y el punto de entrada que arranca
-// la revisión interactiva.
 package cli
 
 import (
@@ -49,7 +46,7 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "Nombre del repositorio")
 	cmd.Flags().IntVar(&idFlag, "id", 0, "Número del pull request")
 
-	cmd.SetVersionTemplate(versionText())
+	cmd.SetVersionTemplate(versionTemplateText())
 
 	cmd.AddCommand(newUpgradeCmd())
 

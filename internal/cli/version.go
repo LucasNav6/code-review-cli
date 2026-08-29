@@ -6,71 +6,80 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/spf13/cobra"
 
 	"github.com/LucasNav6/code-review-cli/internal/buildinfo"
+	"github.com/LucasNav6/code-review-cli/internal/update"
 )
 
-// versionText arma la card que muestra `code-review --version`.
-func versionText() string {
-	header := brandStyle.Render("code-review") + "  " + mutedStyle.Render(buildinfo.Version)
+var versionStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("245"))
 
-	rows := [][2]string{
-		{"Commit", buildinfo.Commit},
-		{"Built", buildinfo.Date},
-		{"Go", strings.TrimPrefix(runtime.Version(), "go")},
-		{"Platform", runtime.GOOS + "/" + runtime.GOARCH},
-	}
-
-	return renderCard(header, rows) + "\n"
+func init() {
+	// Se registra como template para que el chequeo remoto ocurra
+	// únicamente cuando Cobra necesita renderizar --version.
+	cobra.AddTemplateFunc("versionInfo", renderVersionInfo)
 }
 
-// renderCard dibuja una card con un encabezado y una tabla de filas
-// etiqueta/valor, separadas por un divisor — sin depender de colores, solo
-// de bordes y espaciado.
-func renderCard(header string, rows [][2]string) string {
-	labelWidth := 0
+func versionTemplateText() string {
+	return "{{versionInfo}}"
+}
 
-	for _, row := range rows {
-		labelWidth = max(labelWidth, len(row[0]))
+// renderVersionInfo muestra la versión local y, si existe una versión
+// remota diferente, agrega un aviso de actualización.
+func renderVersionInfo() string {
+	version := normalizeVersion(buildinfo.Version)
+	goVersion := strings.TrimPrefix(runtime.Version(), "go")
+
+	var out strings.Builder
+
+	// La información base se muestra muted para que el aviso de actualización
+	// tenga mayor jerarquía visual cuando exista.
+	out.WriteString(
+		versionStyle.Render(
+			fmt.Sprintf("code-review %s (Go %s)", version, goVersion),
+		),
+	)
+
+	// Algunos builds locales pueden no tener configurado el origen remoto
+	// necesario para consultar actualizaciones.
+	if !buildinfo.UpdatesConfigured() {
+		out.WriteString("\n")
+		return out.String()
 	}
 
-	lines := make([]string, 0, len(rows))
+	result, err := update.Check()
 
-	for _, row := range rows {
-		label := mutedStyle.Render(fmt.Sprintf("%-*s", labelWidth, row[0]))
-		lines = append(lines, label+"   "+row[1])
+	// El chequeo es informativo: --version debe seguir funcionando
+	// aunque no haya conexión o falle el servicio remoto.
+	if err != nil || result == nil || !result.HasUpdate {
+		out.WriteString("\n")
+		return out.String()
 	}
 
-	contentWidth := lipgloss.Width(header)
+	current := normalizeVersion(result.Current)
+	latest := normalizeVersion(result.Latest)
 
-	for _, line := range lines {
-		contentWidth = max(contentWidth, lipgloss.Width(line))
+	updateMessage := fmt.Sprintf(
+		"> A new version of code-review is available: %s → %s\n"+
+			"> Run `code-review upgrade` to update",
+		current,
+		latest,
+	)
+
+	out.WriteString("\n\n")
+	out.WriteString(updateStyle.Render(updateMessage))
+	out.WriteString("\n")
+
+	return out.String()
+}
+
+// normalizeVersion mantiene una salida consistente independientemente
+// de si la versión llega como "v0.2.0" o "0.2.0".
+func normalizeVersion(version string) string {
+	if version == "" {
+		return "unknown"
 	}
 
-	borderStyle := lipgloss.NewStyle().Foreground(border)
-
-	line := func(left, fill, right string) string {
-		return borderStyle.Render(left + strings.Repeat(fill, contentWidth+2) + right)
-	}
-
-	side := borderStyle.Render("│")
-
-	pad := func(content string) string {
-		gap := contentWidth - lipgloss.Width(content)
-		return side + " " + content + strings.Repeat(" ", gap) + " " + side
-	}
-
-	var b strings.Builder
-
-	b.WriteString(line("╭", "─", "╮") + "\n")
-	b.WriteString(pad(header) + "\n")
-	b.WriteString(line("├", "─", "┤") + "\n")
-
-	for _, l := range lines {
-		b.WriteString(pad(l) + "\n")
-	}
-
-	b.WriteString(line("╰", "─", "╯"))
-
-	return b.String()
+	return strings.TrimPrefix(version, "v")
 }
