@@ -47,6 +47,7 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().IntVar(&idFlag, "id", 0, "Número del pull request")
 
 	cmd.SetVersionTemplate(versionTemplateText())
+	cmd.SetFlagErrorFunc(flagErrorFunc)
 
 	cmd.AddCommand(newUpgradeCmd())
 
