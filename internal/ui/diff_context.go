@@ -274,12 +274,13 @@ func diffStats(lines []diffLine) (int, int) {
 }
 
 func renderDiffLines(file string, lines []diffLine, width int) string {
-	maxLineWidth := max(24, width-10)
+	innerWidth := max(24, width-4)
+	maxLineWidth := max(24, innerWidth-10)
 	var b strings.Builder
 
 	for _, line := range lines {
 		if line.Kind == '@' {
-			b.WriteString(hunkStyle.Render("    " + truncateRunes(line.Content, maxLineWidth)))
+			b.WriteString(hunkStyle.Width(innerWidth).Render("    " + truncateRunes(line.Content, maxLineWidth)))
 			b.WriteString("\n")
 			continue
 		}
@@ -292,15 +293,15 @@ func renderDiffLines(file string, lines []diffLine, width int) string {
 
 		switch line.Kind {
 		case '+':
-			row = addedLineStyle.Render(row)
+			row = addedLineStyle.Width(innerWidth).Render(row)
 		case '-':
-			row = deletedLineStyle.Render(row)
+			row = deletedLineStyle.Width(innerWidth).Render(row)
 		default:
-			row = contextLineStyle.Render(row)
+			row = contextLineStyle.Width(innerWidth).Render(row)
 		}
 
 		if line.Highlight {
-			row = commentTargetStyle.Width(width - 4).Render(row)
+			row = commentTargetStyle.Width(innerWidth).Render(row)
 		}
 
 		b.WriteString(row)

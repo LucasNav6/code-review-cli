@@ -48,8 +48,9 @@ type Model struct {
 	width  int
 	height int
 
-	loadingText string
-	activity    string
+	loadingText   string
+	activity      string
+	reviewLoading bool
 
 	err  error
 	done bool

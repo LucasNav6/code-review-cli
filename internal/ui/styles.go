@@ -116,6 +116,13 @@ var (
 			Background(branchBg).
 			Padding(0, 1)
 
+	loadingBarStyle = lipgloss.NewStyle().
+			Foreground(fg).
+			Background(headerBg).
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(strongBorder).
+			Padding(0, 1)
+
 	fileHeaderStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(fg).

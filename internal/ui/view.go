@@ -49,17 +49,16 @@ func (m Model) render() string {
 	}
 
 	content := m.renderContent(totalWidth)
+	loadingBar := m.renderStickyLoadingBar(totalWidth)
 	footer := m.renderFooter(totalWidth)
 
-	ui := lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		"",
-		content,
-		"",
-		"",
-		footer,
-	)
+	parts := []string{header}
+	if loadingBar != "" {
+		parts = append(parts, "", loadingBar)
+	}
+	parts = append(parts, "", content, "", "", footer)
+
+	ui := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	return lipgloss.NewStyle().Padding(1, 1).Render(ui)
 }
@@ -222,6 +221,17 @@ func (m Model) renderContent(width int) string {
 	}
 
 	return m.viewport.View()
+}
+
+func (m Model) renderStickyLoadingBar(width int) string {
+	if m.diff == "" || !m.reviewLoading {
+		return ""
+	}
+
+	status := m.spinner.View() + " " + titleStyle.Render("Loading review comments")
+	detail := mutedStyle.Render("async checks are running · diff stays available")
+
+	return loadingBarStyle.Width(width).Render(status + "  " + detail)
 }
 
 func (m Model) renderStatusLine(status review.Status) string {

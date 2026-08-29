@@ -55,9 +55,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case diffLoadedMsg:
 		m.diff = msg.diff
 
-		m.done = true
+		m.done = false
 		m.executingStage = -1
-		m.loadingText = "Diff loaded."
+		m.loadingText = "Loading review comments..."
+		m.reviewLoading = true
 
 		m.refreshViewport()
 
@@ -163,7 +164,7 @@ func (m *Model) resizeViewport() {
 		contentWidth = 30
 	}
 
-	contentHeight := m.height - 15
+	contentHeight := m.height - 17
 
 	if contentHeight < 8 {
 		contentHeight = 8
