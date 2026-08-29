@@ -9,12 +9,7 @@ import (
 	"github.com/LucasNav6/code-review-cli/internal/buildinfo"
 )
 
-var (
-	urlFlag  string
-	orgFlag  string
-	repoFlag string
-	idFlag   int
-)
+var urlFlag string
 
 // Execute builds the command tree and runs the CLI.
 // It is the only entry point called from cmd/code-review/main.go.
@@ -48,27 +43,6 @@ func newRootCmd() *cobra.Command {
 		"GitHub Pull Request URL",
 	)
 
-	cmd.Flags().StringVar(
-		&orgFlag,
-		"org",
-		"",
-		"Repository organization or owner",
-	)
-
-	cmd.Flags().StringVar(
-		&repoFlag,
-		"repo",
-		"",
-		"Repository name",
-	)
-
-	cmd.Flags().IntVar(
-		&idFlag,
-		"id",
-		0,
-		"Pull Request number",
-	)
-
 	cmd.SetVersionTemplate(versionTemplateText())
 	cmd.SetFlagErrorFunc(flagErrorFunc)
 
@@ -82,6 +56,5 @@ func newRootCmd() *cobra.Command {
 
 func exampleText() string {
 	return "  code-review --url https://github.com/org/repo/pull/123\n" +
-		"  code-review --org org --repo repo --id 123\n" +
 		"  code-review upgrade"
 }

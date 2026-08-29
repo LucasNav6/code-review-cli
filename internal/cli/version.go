@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/LucasNav6/code-review-cli/internal/buildinfo"
-	"github.com/LucasNav6/code-review-cli/internal/update"
 )
 
 var versionStyle = lipgloss.NewStyle().
@@ -41,34 +40,17 @@ func renderVersionInfo() string {
 		),
 	)
 
-	// Algunos builds locales pueden no tener configurado el origen remoto
-	// necesario para consultar actualizaciones.
-	if !buildinfo.UpdatesConfigured() {
+	// El chequeo es informativo: --version debe seguir funcionando aunque no
+	// haya conexión, falle el servicio remoto, o el build no tenga
+	// configurado el origen remoto necesario para consultar actualizaciones.
+	notice := renderUpdateNotice()
+	if notice == "" {
 		out.WriteString("\n")
 		return out.String()
 	}
-
-	result, err := update.Check()
-
-	// El chequeo es informativo: --version debe seguir funcionando
-	// aunque no haya conexión o falle el servicio remoto.
-	if err != nil || result == nil || !result.HasUpdate {
-		out.WriteString("\n")
-		return out.String()
-	}
-
-	current := normalizeVersion(result.Current)
-	latest := normalizeVersion(result.Latest)
-
-	updateMessage := fmt.Sprintf(
-		"> A new version of code-review is available: %s → %s\n"+
-			"> Run `code-review upgrade` to update",
-		current,
-		latest,
-	)
 
 	out.WriteString("\n\n")
-	out.WriteString(updateStyle.Render(updateMessage))
+	out.WriteString(notice)
 	out.WriteString("\n")
 
 	return out.String()
