@@ -117,6 +117,16 @@ func sectionFindings(stages []review.Stage) []review.Finding {
 	return findings
 }
 
+func allFindings(stages []review.Stage) []review.Finding {
+	var findings []review.Finding
+
+	for _, stage := range stages {
+		findings = append(findings, stage.Findings()...)
+	}
+
+	return findings
+}
+
 // sectionRawOutput concatena la salida cruda de todas las stages de la
 // sección. Cuando la sección agrupa más de una stage (RISK), antepone el
 // nombre de cada una para no perder de dónde viene cada bloque.

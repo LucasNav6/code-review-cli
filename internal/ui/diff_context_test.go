@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -41,7 +42,7 @@ func TestRenderInlineReviewIncludesDiffAndComment(t *testing.T) {
 		},
 	}
 
-	rendered := renderInlineReview(diff, findings, 100)
+	rendered := stripANSI(renderInlineReview(diff, findings, 100))
 
 	for _, expected := range []string{
 		"internal/app.go",
@@ -54,4 +55,10 @@ func TestRenderInlineReviewIncludesDiffAndComment(t *testing.T) {
 			t.Fatalf("expected rendered output to contain %q:\n%s", expected, rendered)
 		}
 	}
+}
+
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(value string) string {
+	return ansiRe.ReplaceAllString(value, "")
 }

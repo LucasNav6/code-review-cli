@@ -76,7 +76,7 @@ func New(pr githubpr.PullRequest) Model {
 		mode:           modeFindings,
 		spinner:        s,
 		viewport:       vp,
-		loadingText:    "Validando que tengas gh y claude instalados...",
+		loadingText:    "Validando GitHub CLI...",
 	}
 }
 

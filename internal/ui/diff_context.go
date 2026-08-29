@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/LucasNav6/code-review-cli/internal/review"
 )
 
@@ -17,17 +19,19 @@ type diffLine struct {
 }
 
 type diffBlock struct {
-	File  string
-	Lines []diffLine
+	File      string
+	Lines     []diffLine
+	Additions int
+	Deletions int
 }
 
 func renderInlineReview(diff string, findings []review.Finding, width int) string {
 	if len(findings) == 0 {
-		return successStyle.Render("No findings.")
+		return renderFilesChanged(diff, nil, width)
 	}
 
 	groups := groupFindingsByFile(findings)
-	blocks := parseDiffBlocks(diff, groups)
+	blocks := parseDiffBlocks(diff, groups, false)
 
 	var b strings.Builder
 
@@ -59,6 +63,26 @@ func renderInlineReview(diff string, findings []review.Finding, width int) strin
 	return b.String()
 }
 
+func renderFilesChanged(diff string, findings []review.Finding, width int) string {
+	groups := groupFindingsByFile(findings)
+	blocks := parseDiffBlocks(diff, groups, true)
+
+	if len(blocks) == 0 {
+		return mutedStyle.Render("No diff content available.")
+	}
+
+	var b strings.Builder
+
+	b.WriteString(mutedStyle.Render(fmt.Sprintf("%d files changed", len(blocks))))
+
+	for _, block := range blocks {
+		b.WriteString("\n\n")
+		b.WriteString(renderDiffFile(block, groups[block.File], width))
+	}
+
+	return b.String()
+}
+
 func groupFindingsByFile(findings []review.Finding) map[string][]review.Finding {
 	groups := map[string][]review.Finding{}
 
@@ -74,16 +98,23 @@ func groupFindingsByFile(findings []review.Finding) map[string][]review.Finding 
 	return groups
 }
 
-func parseDiffBlocks(diff string, groups map[string][]review.Finding) []diffBlock {
+func parseDiffBlocks(diff string, groups map[string][]review.Finding, includeAll bool) []diffBlock {
 	var blocks []diffBlock
 	var currentFile string
+	var previousFile string
 	var currentLines []diffLine
 	var oldLine, newLine int
-	inTargetFile := false
+	inCurrentFile := false
 
 	flush := func() {
 		if currentFile != "" && len(currentLines) > 0 {
-			blocks = append(blocks, diffBlock{File: currentFile, Lines: currentLines})
+			additions, deletions := diffStats(currentLines)
+			blocks = append(blocks, diffBlock{
+				File:      currentFile,
+				Lines:     currentLines,
+				Additions: additions,
+				Deletions: deletions,
+			})
 		}
 
 		currentLines = nil
@@ -94,14 +125,23 @@ func parseDiffBlocks(diff string, groups map[string][]review.Finding) []diffBloc
 		case strings.HasPrefix(rawLine, "diff --git "):
 			flush()
 			currentFile = ""
-			inTargetFile = false
+			previousFile = ""
+			inCurrentFile = false
+
+		case strings.HasPrefix(rawLine, "--- "):
+			previousFile = normalizeDiffPath(strings.TrimPrefix(rawLine, "--- "))
 
 		case strings.HasPrefix(rawLine, "+++ "):
 			currentFile = normalizeDiffPath(strings.TrimPrefix(rawLine, "+++ "))
-			_, inTargetFile = groups[currentFile]
+			if currentFile == "" {
+				currentFile = previousFile
+			}
+
+			_, hasFindings := groups[currentFile]
+			inCurrentFile = includeAll || hasFindings
 
 		case strings.HasPrefix(rawLine, "@@"):
-			if !inTargetFile {
+			if !inCurrentFile {
 				continue
 			}
 
@@ -114,17 +154,17 @@ func parseDiffBlocks(diff string, groups map[string][]review.Finding) []diffBloc
 			newLine = startNew
 			currentLines = append(currentLines, diffLine{Kind: '@', Content: rawLine})
 
-		case inTargetFile && strings.HasPrefix(rawLine, "+"):
+		case inCurrentFile && strings.HasPrefix(rawLine, "+"):
 			line := diffLine{Kind: '+', NewLine: newLine, Content: strings.TrimPrefix(rawLine, "+")}
 			currentLines = append(currentLines, line)
 			newLine++
 
-		case inTargetFile && strings.HasPrefix(rawLine, "-"):
+		case inCurrentFile && strings.HasPrefix(rawLine, "-"):
 			line := diffLine{Kind: '-', OldLine: oldLine, Content: strings.TrimPrefix(rawLine, "-")}
 			currentLines = append(currentLines, line)
 			oldLine++
 
-		case inTargetFile && strings.HasPrefix(rawLine, " "):
+		case inCurrentFile && strings.HasPrefix(rawLine, " "):
 			line := diffLine{Kind: ' ', OldLine: oldLine, NewLine: newLine, Content: strings.TrimPrefix(rawLine, " ")}
 			currentLines = append(currentLines, line)
 			oldLine++
@@ -188,14 +228,52 @@ func markCommentLines(blocks []diffBlock, groups map[string][]review.Finding) {
 }
 
 func renderDiffFile(block diffBlock, findings []review.Finding, width int) string {
-	title := fileHeaderStyle.Width(width).Render("▾  " + block.File)
-	diffBody := renderDiffLines(compactDiffLines(block.Lines, findings), width)
-	comments := renderFileComments(findings, width)
+	title := renderFileRule(block, width)
+	lines := block.Lines
+	if len(findings) > 0 {
+		lines = compactDiffLines(block.Lines, findings)
+	}
 
-	return normalPanel.Width(width).Render(title + "\n" + diffBody + "\n" + comments)
+	diffBody := renderDiffLines(block.File, lines, width)
+	comments := ""
+	if len(findings) > 0 {
+		comments = "\n" + renderFileComments(findings, width)
+	}
+
+	return title + "\n" + normalPanel.Width(width).Render(diffBody+comments)
 }
 
-func renderDiffLines(lines []diffLine, width int) string {
+func renderFileRule(block diffBlock, width int) string {
+	label := strings.Join([]string{
+		" " + block.File,
+		additionStatStyle.Render(fmt.Sprintf("+%d", block.Additions)),
+		deletionStatStyle.Render(fmt.Sprintf("-%d", block.Deletions)),
+		"",
+	}, " ")
+	labelWidth := lipgloss.Width(label)
+	if labelWidth >= width {
+		return fileHeaderStyle.Render(truncateRunes(block.File, width))
+	}
+
+	return fileHeaderStyle.Render(label + strings.Repeat("─", width-labelWidth))
+}
+
+func diffStats(lines []diffLine) (int, int) {
+	var additions, deletions int
+
+	for _, line := range lines {
+		switch line.Kind {
+		case '+':
+			additions++
+		case '-':
+			deletions++
+		}
+	}
+
+	return additions, deletions
+}
+
+func renderDiffLines(file string, lines []diffLine, width int) string {
 	maxLineWidth := max(24, width-10)
 	var b strings.Builder
 
@@ -208,8 +286,8 @@ func renderDiffLines(lines []diffLine, width int) string {
 
 		oldNo := lineNumberCell(line.OldLine)
 		newNo := lineNumberCell(line.NewLine)
-		prefix := string(line.Kind)
-		content := truncateRunes(line.Content, maxLineWidth)
+		prefix := diffPrefix(line.Kind)
+		content := highlightCode(file, truncateRunes(line.Content, maxLineWidth))
 		row := fmt.Sprintf("%s %s  %s %s", oldNo, newNo, prefix, content)
 
 		switch line.Kind {
@@ -230,6 +308,17 @@ func renderDiffLines(lines []diffLine, width int) string {
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func diffPrefix(kind byte) string {
+	switch kind {
+	case '+':
+		return additionStatStyle.Render("+")
+	case '-':
+		return deletionStatStyle.Render("-")
+	default:
+		return " "
+	}
 }
 
 func renderFileComments(findings []review.Finding, width int) string {

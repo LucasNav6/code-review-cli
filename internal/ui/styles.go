@@ -137,6 +137,29 @@ var (
 				Foreground(fg).
 				Background(deletedBg)
 
+	additionStatStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#3FB950"))
+
+	deletionStatStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#F85149"))
+
+	syntaxKeywordStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF79C6"))
+
+	syntaxStringStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#F1FA8C"))
+
+	syntaxCommentStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6272A4"))
+
+	syntaxNumberStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#BD93F9"))
+
+	syntaxLiteralStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#8BE9FD"))
+
 	commentTargetStyle = lipgloss.NewStyle().
 				Border(lipgloss.NormalBorder(), false, false, false, true).
 				BorderForeground(commentLine).

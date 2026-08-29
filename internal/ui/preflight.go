@@ -30,11 +30,6 @@ var requiredDependencies = []dependency{
 		Command:     "gh",
 		InstallHint: "instalalo desde https://cli.github.com y autenticate con \"gh auth login\"",
 	},
-	{
-		Label:       "Claude Code CLI (claude)",
-		Command:     "claude",
-		InstallHint: "instalalo desde https://docs.claude.com/claude-code",
-	},
 }
 
 type dependencyResult struct {

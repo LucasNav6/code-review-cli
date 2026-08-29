@@ -25,7 +25,7 @@ func (m Model) render() string {
 		return "\n  Preparando interfaz..."
 	}
 
-	totalWidth := max(70, m.width-4)
+	totalWidth := max(70, m.width-2)
 
 	if m.preflight != preflightPassed {
 		return lipgloss.NewStyle().
@@ -61,7 +61,7 @@ func (m Model) render() string {
 		footer,
 	)
 
-	return lipgloss.NewStyle().Padding(1, 2).Render(ui)
+	return lipgloss.NewStyle().Padding(1, 1).Render(ui)
 }
 
 // =============================================================================
@@ -76,7 +76,7 @@ func (m Model) renderPreflightScreen(width int) string {
 	if len(m.dependencyResults) == 0 {
 		lines = append(
 			lines,
-			m.spinner.View()+" "+mutedStyle.Render("Comprobando que tengas gh y claude instalados..."),
+			m.spinner.View()+" "+mutedStyle.Render("Comprobando GitHub CLI..."),
 		)
 	} else {
 		for _, dep := range m.dependencyResults {
@@ -163,8 +163,6 @@ func (m Model) renderHeader(width int) string {
 		return body
 	}
 
-	body += "\n\n" + m.renderSectionTabs()
-
 	return body
 }
 
@@ -220,18 +218,10 @@ func (m Model) renderSectionTabs() string {
 // directamente sobre el fondo, sin borde.
 func (m Model) renderContent(width int) string {
 	if m.prInfo == nil || m.diff == "" {
-		return mutedStyle.Render("Preparando el análisis...")
+		return mutedStyle.Render("Preparing diff...")
 	}
 
-	sec := m.currentSection()
-	stages := m.currentSectionStages()
-	status := sectionStatus(stages)
-
-	head := sectionStyle.Render(sec.Label) + "\n" + mutedStyle.Render(sec.Subtitle)
-	statusLine := m.renderStatusLine(status)
-	body := m.renderSectionBody(status)
-
-	return head + "\n\n" + statusLine + "\n\n" + body
+	return m.viewport.View()
 }
 
 func (m Model) renderStatusLine(status review.Status) string {
@@ -289,16 +279,8 @@ func (m Model) renderFindingsText(stages []review.Stage, width int) string {
 func (m Model) renderFooter(width int) string {
 	rule := lipgloss.NewStyle().Foreground(border).Render(strings.Repeat("─", width))
 
-	mode := "Findings"
-
-	if m.mode == modeClaude {
-		mode = "Output"
-	}
-
 	controls := []string{
-		keyStyle.Render("← →") + " section",
 		keyStyle.Render("↑ ↓") + " scroll",
-		keyStyle.Render("Tab") + " " + mode,
 		keyStyle.Render("q") + " quit",
 	}
 

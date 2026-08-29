@@ -55,16 +55,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case diffLoadedMsg:
 		m.diff = msg.diff
 
-		m.executingStage = 0
-		m.selectedStage = 0
-
-		m.stages[0].Status = review.StatusRunning
-
-		m.activity = "Reviewing changed files..."
+		m.done = true
+		m.executingStage = -1
+		m.loadingText = "Diff loaded."
 
 		m.refreshViewport()
 
-		return m, startReviewCmd(m.pr, m.headSHA, m.stages[0], m.diff, 0)
+		return m, nil
 
 	case claudeStartedMsg:
 		m.claudeChannel = msg.channel
@@ -119,22 +116,9 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q", "ctrl+c":
 		return m, tea.Quit
-
-	case "left", "h":
-		m.selectPreviousSection()
-		return m, nil
-
-	case "right", "l":
-		m.selectNextSection()
-		return m, nil
-
-	case "tab":
-		m.toggleMode()
-		return m, nil
 	}
 
-	// Todo lo demás (↑ ↓ PgUp PgDn, etc.) scrollea el contenido de la
-	// sección actual, sea la lista de hallazgos o la salida cruda.
+	// Todo lo demás (↑ ↓ PgUp PgDn, etc.) scrollea el diff.
 	var cmd tea.Cmd
 
 	m.viewport, cmd = m.viewport.Update(msg)
@@ -173,7 +157,7 @@ func (m *Model) toggleMode() {
 }
 
 func (m *Model) resizeViewport() {
-	contentWidth := m.width - 10
+	contentWidth := m.width - 2
 
 	if contentWidth < 30 {
 		contentWidth = 30
@@ -191,16 +175,9 @@ func (m *Model) resizeViewport() {
 	m.refreshViewport()
 }
 
-// refreshViewport recalcula el contenido scrolleable de la sección
-// actualmente seleccionada según su estado y el modo (hallazgos vs salida
-// cruda). El status y la línea de actividad mientras corre se renderizan
-// aparte, directamente en view.go, porque son una sola línea fija.
+// refreshViewport recalcula el contenido scrolleable principal.
 func (m *Model) refreshViewport() {
-	stages := m.currentSectionStages()
-	status := sectionStatus(stages)
-
-	switch {
-	case status == review.StatusError:
+	if m.err != nil {
 		detail := ""
 
 		if m.err != nil {
@@ -210,28 +187,11 @@ func (m *Model) refreshViewport() {
 		m.viewport.SetContent(wrapText(mutedStyle.Render(detail), m.viewport.Width()))
 		m.viewport.GotoTop()
 
-	case m.mode == modeClaude:
-		content := sectionRawOutput(stages)
-
-		if content == "" {
-			content = mutedStyle.Render("Todavía no hay salida.")
-		}
-
-		m.viewport.SetContent(content)
-
-		if status == review.StatusRunning {
-			m.viewport.GotoBottom()
-		} else {
-			m.viewport.GotoTop()
-		}
-
-	case status == review.StatusRunning, status == review.StatusPending:
-		m.viewport.SetContent("")
-
-	default:
-		m.viewport.SetContent(m.renderFindingsText(stages, m.viewport.Width()))
-		m.viewport.GotoTop()
+		return
 	}
+
+	m.viewport.SetContent(renderFilesChanged(m.diff, allFindings(m.stages), m.viewport.Width()))
+	m.viewport.GotoTop()
 }
 
 // finishPromptReview interpreta la respuesta cruda de Claude para una etapa
