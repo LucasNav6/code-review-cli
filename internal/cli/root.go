@@ -16,11 +16,11 @@ var (
 	idFlag   int
 )
 
-// Execute construye el árbol de comandos y lo ejecuta. Es lo único que
-// invoca cmd/code-review/main.go.
+// Execute builds the command tree and runs the CLI.
+// It is the only entry point called from cmd/code-review/main.go.
 func Execute() {
 	if err := newRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, errorStyle.Render("✗ ")+err.Error())
+		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 }
@@ -28,25 +28,51 @@ func Execute() {
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "code-review",
-		Short: "Revisión automática de Pull Requests con Claude Code",
-		Long: "Revisión automática de Pull Requests de GitHub con Claude Code,\n" +
-			"organizada en etapas: seguridad OWASP, dependencias (OSV.dev), mantenibilidad, testing y resiliencia.",
+		Short: "AI-powered GitHub Pull Request review",
+		Long: "AI-powered GitHub Pull Request review with Claude Code.\n" +
+			"Analyzes security, dependencies, maintainability, testing, and resilience.",
 		Example: exampleText(),
 		Version: buildinfo.Version,
 
+		// Errors and usage are rendered by our own UI instead of Cobra defaults.
 		SilenceErrors: true,
 		SilenceUsage:  true,
 
 		RunE: runReview,
 	}
 
-	cmd.Flags().StringVar(&urlFlag, "url", "", "URL del pull request")
-	cmd.Flags().StringVar(&orgFlag, "org", "", "Organización u owner del repositorio")
-	cmd.Flags().StringVar(&repoFlag, "repo", "", "Nombre del repositorio")
-	cmd.Flags().IntVar(&idFlag, "id", 0, "Número del pull request")
+	cmd.Flags().StringVar(
+		&urlFlag,
+		"url",
+		"",
+		"GitHub Pull Request URL",
+	)
+
+	cmd.Flags().StringVar(
+		&orgFlag,
+		"org",
+		"",
+		"Repository organization or owner",
+	)
+
+	cmd.Flags().StringVar(
+		&repoFlag,
+		"repo",
+		"",
+		"Repository name",
+	)
+
+	cmd.Flags().IntVar(
+		&idFlag,
+		"id",
+		0,
+		"Pull Request number",
+	)
 
 	cmd.SetVersionTemplate(versionTemplateText())
 	cmd.SetFlagErrorFunc(flagErrorFunc)
+
+	// Custom help keeps the CLI visually consistent with version and errors.
 	cmd.SetHelpFunc(renderHelp)
 
 	cmd.AddCommand(newUpgradeCmd())
@@ -55,7 +81,7 @@ func newRootCmd() *cobra.Command {
 }
 
 func exampleText() string {
-	return "  code-review --url=\"https://github.com/org/repo/pull/123\"\n" +
-		"  code-review --org=\"org\" --repo=\"repo\" --id=123\n" +
+	return "  code-review --url https://github.com/org/repo/pull/123\n" +
+		"  code-review --org org --repo repo --id 123\n" +
 		"  code-review upgrade"
 }
