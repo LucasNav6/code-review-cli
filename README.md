@@ -1,11 +1,12 @@
 # code-review
 
-CLI que revisa Pull Requests de GitHub con [Claude Code](https://docs.claude.com/claude-code), organizada en cuatro etapas independientes:
+CLI que revisa Pull Requests de GitHub, organizada en etapas independientes:
 
-- **Seguridad** — OWASP API Security Top 10 2023
-- **Mantenibilidad** — estructura, legibilidad y complejidad
-- **Testing** — cobertura y casos borde
-- **Resiliencia** — manejo de fallos y observabilidad
+- **Seguridad** — OWASP API Security Top 10 2023 (vía Claude Code)
+- **Dependencias** — vulnerabilidades conocidas en las dependencias del PR, escaneadas contra [OSV.dev](https://osv.dev) con [OSV-Scanner](https://github.com/google/osv-scanner) embebido. A diferencia de las demás etapas, es 100% determinística: no pasa por ningún modelo de lenguaje.
+- **Mantenibilidad** — estructura, legibilidad y complejidad (vía Claude Code)
+- **Testing** — cobertura y casos borde (vía Claude Code)
+- **Resiliencia** — manejo de fallos y observabilidad (vía Claude Code)
 
 Muestra el progreso de cada etapa en una interfaz interactiva de terminal y deja los hallazgos de cada una en un archivo Markdown en el directorio actual.
 
@@ -13,6 +14,8 @@ Muestra el progreso de cada etapa en una interfaz interactiva de terminal y deja
 
 - [`gh`](https://cli.github.com) (GitHub CLI), autenticado con `gh auth login`.
 - [`claude`](https://docs.claude.com/claude-code) (Claude Code CLI), autenticado.
+
+No hace falta instalar nada aparte para el escaneo de dependencias — OSV-Scanner viaja embebido dentro del binario de `code-review`.
 
 ## Instalación
 

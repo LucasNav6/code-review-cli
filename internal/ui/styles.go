@@ -2,32 +2,40 @@ package ui
 
 import "charm.land/lipgloss/v2"
 
-// Paleta de marca. Se mantiene deliberadamente chica y consistente para
-// que la interfaz se sienta sólida y "empresarial" en vez de un TUI de
-// hobby con muchos colores sueltos.
+// Paleta estrictamente en escala de grises (blanco, negro y grises
+// intermedios), estilo minimalista shadcn — sin acentos de color. La
+// jerarquía visual se logra con peso tipográfico (bold), símbolos (✓ ! ✗)
+// y contraste de bordes, no con matices.
 var (
-	primary = lipgloss.Color("#7C5CFC")
-	text    = lipgloss.Color("#FAFAFA")
-	muted   = lipgloss.Color("#71717A")
-	dim     = lipgloss.Color("#52525B")
-	border  = lipgloss.Color("#3F3F46")
-	success = lipgloss.Color("#22C55E")
-	warning = lipgloss.Color("#F59E0B")
-	danger  = lipgloss.Color("#EF4444")
-	info    = lipgloss.Color("#38BDF8")
+	fg           = lipgloss.Color("#FAFAFA")
+	bg           = lipgloss.Color("#09090B")
+	muted        = lipgloss.Color("#71717A")
+	dim          = lipgloss.Color("#52525B")
+	border       = lipgloss.Color("#3F3F46")
+	strongBorder = lipgloss.Color("#E4E4E7")
+
+	// severityAccent es la única excepción deliberada a la paleta en
+	// escala de grises: llama la atención sobre la severidad de un
+	// hallazgo (CRITICAL/HIGH/...) y la cantidad de hallazgos por sección
+	// en las tabs.
+	severityAccent = lipgloss.Color("#F59E0B")
+
+	// primary queda como alias de fg: lo usa el spinner, que antes tomaba
+	// el color de marca directamente.
+	primary = fg
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(text)
+			Foreground(fg)
 
 	brandStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(primary)
+			Foreground(fg)
 
 	brandBadgeStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(primary).
+			Foreground(bg).
+			Background(fg).
 			Padding(0, 1)
 
 	mutedStyle = lipgloss.NewStyle().
@@ -36,21 +44,27 @@ var (
 	dimStyle = lipgloss.NewStyle().
 			Foreground(dim)
 
+	// successStyle es texto normal: el símbolo (✓) ya transmite el estado,
+	// no hace falta un color aparte.
 	successStyle = lipgloss.NewStyle().
-			Foreground(success)
+			Foreground(fg)
 
+	// warningStyle y errorStyle usan negrita para llamar la atención sin
+	// recurrir a un acento de color.
 	warningStyle = lipgloss.NewStyle().
-			Foreground(warning)
+			Bold(true).
+			Foreground(fg)
 
 	errorStyle = lipgloss.NewStyle().
-			Foreground(danger)
+			Bold(true).
+			Foreground(fg)
 
 	infoStyle = lipgloss.NewStyle().
-			Foreground(info)
+			Foreground(muted)
 
 	sectionStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(primary)
+			Foreground(fg)
 
 	normalPanel = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -59,21 +73,31 @@ var (
 
 	activePanel = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(primary).
+			BorderForeground(strongBorder).
 			Padding(0, 1)
 
 	selectedStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(primary)
+			Foreground(fg)
+
+	// tabIndicatorStyle pinta la línea debajo de la etapa seleccionada en
+	// la fila de tabs del header.
+	tabIndicatorStyle = lipgloss.NewStyle().
+				Foreground(strongBorder)
 
 	fileStyle = lipgloss.NewStyle().
-			Foreground(info)
+			Foreground(muted)
 
 	categoryStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(warning)
+			Foreground(severityAccent)
+
+	// badgeStyle pinta el contador de hallazgos "[N]" de cada tab.
+	badgeStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(severityAccent)
 
 	keyStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(text)
+			Foreground(fg)
 )

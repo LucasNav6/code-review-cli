@@ -27,18 +27,40 @@ func printUpdateNoticeIfAny() {
 	fmt.Println(renderUpdateCard(result))
 }
 
+// renderUpdateNotice devuelve el mismo aviso de actualización que --version
+// (dos líneas, sin card), o "" si no hay una versión más nueva disponible.
+// Se usa donde el aviso necesita integrarse en un flujo más chico, como el
+// prompt interactivo de la URL.
+func renderUpdateNotice() string {
+	if !buildinfo.UpdatesConfigured() {
+		return ""
+	}
+
+	result, err := update.Check()
+	if err != nil || result == nil || !result.HasUpdate {
+		return ""
+	}
+
+	return updateStyle.Render(fmt.Sprintf(
+		"> A new version of code-review is available: %s → %s\n"+
+			"> Run `code-review upgrade` to update",
+		normalizeVersion(result.Current),
+		normalizeVersion(result.Latest),
+	))
+}
+
 func renderUpdateCard(result *update.CheckResult) string {
 	inner := fmt.Sprintf(
 		"%s\n\n%s  →  %s\n\n%s",
-		warningStyle.Bold(true).Render("Nueva versión de code-review disponible"),
-		mutedStyle.Render(result.Current),
-		successStyle.Bold(true).Render(result.Latest),
-		mutedStyle.Render("Ejecutá ")+brandStyle.Render("code-review upgrade")+mutedStyle.Render(" para actualizar"),
+		updateStyle.Render("Nueva versión de code-review disponible"),
+		updateStyle.Render(result.Current),
+		updateStyle.Render(result.Latest),
+		updateStyle.Render("Ejecutá code-review upgrade para actualizar"),
 	)
 
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(warningColor).
+		Border(lipgloss.ThickBorder()).
+		BorderForeground(updateAccent).
 		Padding(1, 2).
 		Render(inner)
 }
