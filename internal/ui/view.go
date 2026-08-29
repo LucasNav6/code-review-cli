@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -136,30 +135,23 @@ func (m Model) renderHeader(width int) string {
 		return brand + "\n\n" + box
 	}
 
-	line1 := fmt.Sprintf(
-		"%s  %s",
-		brandStyle.Render(fmt.Sprintf("#%d", m.pr.Number)),
-		titleStyle.Render(m.prInfo.Title),
-	)
+	line1 := brandStyle.Render(m.prInfo.Title) + " " + dimStyle.Render(fmt.Sprintf("#%d", m.pr.Number))
 
-	line2 := fmt.Sprintf(
-		"%s  %s",
-		titleStyle.Render(m.pr.Repository()),
-		mutedStyle.Render("@"+m.prInfo.Author.Login),
-	)
-
-	line3 := strings.Join([]string{
-		infoStyle.Render(m.prInfo.HeadRefName),
-		mutedStyle.Render("→"),
-		infoStyle.Render(m.prInfo.BaseRefName),
+	line2 := strings.Join([]string{
+		prStateStyle.Render(prStateLabel(m.prInfo.State)),
+		titleStyle.Render("@" + m.prInfo.Author.Login),
+		mutedStyle.Render("wants to merge into"),
+		branchStyle.Render(m.prInfo.BaseRefName),
+		mutedStyle.Render("from"),
+		branchStyle.Render(m.prInfo.HeadRefName),
 		mutedStyle.Render("·"),
 		mutedStyle.Render(fmt.Sprintf("%d files", m.prInfo.ChangedFiles)),
 		mutedStyle.Render("·"),
 		successStyle.Render(fmt.Sprintf("+%d", m.prInfo.Additions)),
 		errorStyle.Render(fmt.Sprintf("-%d", m.prInfo.Deletions)),
-	}, "  ")
+	}, " ")
 
-	prBox := normalPanel.Width(width).Render(line1 + "\n" + line2 + "\n\n" + line3)
+	prBox := normalPanel.Width(width).Render(line1 + "\n\n" + line2)
 
 	body := brand + "\n\n" + prBox
 
@@ -283,71 +275,11 @@ func (m Model) renderSectionBody(status review.Status) string {
 	return m.viewport.View()
 }
 
-// renderFindingsText arma el documento scrolleable con todos los hallazgos
-// de la sección apilados (reemplaza la vieja navegación hallazgo a
-// hallazgo: ahora se scrollea con ↑ ↓ como el resto del contenido).
+// renderFindingsText arma el documento scrolleable como un diff de GitHub:
+// archivos, hunks y comentarios inline con el contexto alrededor.
 func (m Model) renderFindingsText(stages []review.Stage, width int) string {
 	findings := sectionFindings(stages)
-
-	if len(findings) == 0 {
-		return successStyle.Render("No findings.")
-	}
-
-	label := "findings"
-
-	if len(findings) == 1 {
-		label = "finding"
-	}
-
-	var b strings.Builder
-
-	b.WriteString(mutedStyle.Render(fmt.Sprintf("%d %s", len(findings), label)))
-
-	for _, finding := range findings {
-		b.WriteString("\n\n\n")
-		b.WriteString(categoryStyle.Render(strings.ToUpper(finding.Category)))
-
-		if finding.Title != "" {
-			b.WriteString("\n\n")
-			b.WriteString(titleStyle.Render(finding.Title))
-		}
-
-		location := finding.File
-
-		if finding.Line > 0 {
-			location += ":" + strconv.Itoa(finding.Line)
-		}
-
-		if location != "" {
-			b.WriteString("\n\n")
-			b.WriteString(fileStyle.Render(location))
-		}
-
-		if finding.Comment != "" {
-			b.WriteString("\n\n")
-			b.WriteString(wrapText(finding.Comment, width))
-		}
-
-		for _, detail := range finding.Details {
-			if detail.Value == "" {
-				continue
-			}
-
-			b.WriteString("\n\n")
-			b.WriteString(mutedStyle.Render(detail.Label + ":"))
-			b.WriteString("\n")
-			b.WriteString(wrapText(detail.Value, width))
-		}
-
-		if finding.Suggestion != "" {
-			b.WriteString("\n\n")
-			b.WriteString(titleStyle.Render("Suggestion"))
-			b.WriteString("\n")
-			b.WriteString(wrapText(finding.Suggestion, width))
-		}
-	}
-
-	return b.String()
+	return renderInlineReview(m.diff, findings, width)
 }
 
 // =============================================================================
@@ -397,4 +329,15 @@ func wrapText(value string, width int) string {
 	}
 
 	return lipgloss.NewStyle().Width(width).Render(value)
+}
+
+func prStateLabel(state string) string {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "MERGED":
+		return "Merged"
+	case "CLOSED":
+		return "Closed"
+	default:
+		return "Open"
+	}
 }

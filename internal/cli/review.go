@@ -52,17 +52,18 @@ func askPullRequestInteractively() (*githubpr.PullRequest, error) {
 	}
 
 	fmt.Println()
-	fmt.Println(brandStyle.Render("code-review"))
-	fmt.Println()
+	fmt.Println(brandStyle.Render("# code-review"))
 
 	if notice := renderUpdateNotice(); notice != "" {
-		fmt.Println(notice)
 		fmt.Println()
+		fmt.Println(notice)
 	}
 
-	fmt.Println(
-		"Enter a GitHub Pull Request URL",
-	)
+	fmt.Println()
+	fmt.Println(mutedStyle.Render("GitHub Pull Request"))
+	fmt.Println(brandStyle.Render("Paste a PR URL to open the terminal review"))
+	fmt.Println(mutedStyle.Render("Example: https://github.com/org/repo/pull/123"))
+	fmt.Println()
 
 	fmt.Print(
 		brandStyle.Render("> "),

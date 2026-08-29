@@ -2,23 +2,25 @@ package ui
 
 import "charm.land/lipgloss/v2"
 
-// Paleta estrictamente en escala de grises (blanco, negro y grises
-// intermedios), estilo minimalista shadcn — sin acentos de color. La
-// jerarquía visual se logra con peso tipográfico (bold), símbolos (✓ ! ✗)
-// y contraste de bordes, no con matices.
+// Paleta dark inspirada en GitHub: fondo profundo, bordes suaves y acentos
+// mínimos para estado, branch chips y líneas de diff.
 var (
-	fg           = lipgloss.Color("#FAFAFA")
-	bg           = lipgloss.Color("#09090B")
-	muted        = lipgloss.Color("#71717A")
-	dim          = lipgloss.Color("#52525B")
-	border       = lipgloss.Color("#3F3F46")
-	strongBorder = lipgloss.Color("#E4E4E7")
-
-	// severityAccent es la única excepción deliberada a la paleta en
-	// escala de grises: llama la atención sobre la severidad de un
-	// hallazgo (CRITICAL/HIGH/...) y la cantidad de hallazgos por sección
-	// en las tabs.
-	severityAccent = lipgloss.Color("#F59E0B")
+	fg             = lipgloss.Color("#FAFAFA")
+	bg             = lipgloss.Color("#09090B")
+	muted          = lipgloss.Color("#8B949E")
+	dim            = lipgloss.Color("#6E7681")
+	border         = lipgloss.Color("#30363D")
+	strongBorder   = lipgloss.Color("#58A6FF")
+	panelBg        = lipgloss.Color("#0D1117")
+	headerBg       = lipgloss.Color("#161B22")
+	addedBg        = lipgloss.Color("#12261F")
+	deletedBg      = lipgloss.Color("#2D1517")
+	commentBg      = lipgloss.Color("#111827")
+	commentLine    = lipgloss.Color("#3B82F6")
+	mergedBg       = lipgloss.Color("#8957E5")
+	branchBg       = lipgloss.Color("#13233A")
+	branchFg       = lipgloss.Color("#58A6FF")
+	severityAccent = lipgloss.Color("#F0883E")
 
 	// primary queda como alias de fg: lo usa el spinner, que antes tomaba
 	// el color de marca directamente.
@@ -69,11 +71,13 @@ var (
 	normalPanel = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(border).
+			Background(panelBg).
 			Padding(0, 1)
 
 	activePanel = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(strongBorder).
+			Background(panelBg).
 			Padding(0, 1)
 
 	selectedStyle = lipgloss.NewStyle().
@@ -100,4 +104,52 @@ var (
 	keyStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(fg)
+
+	prStateStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(fg).
+			Background(mergedBg).
+			Padding(0, 1)
+
+	branchStyle = lipgloss.NewStyle().
+			Foreground(branchFg).
+			Background(branchBg).
+			Padding(0, 1)
+
+	fileHeaderStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(fg).
+			Background(headerBg).
+			Padding(0, 1)
+
+	hunkStyle = lipgloss.NewStyle().
+			Foreground(muted).
+			Background(branchBg)
+
+	contextLineStyle = lipgloss.NewStyle().
+				Foreground(fg)
+
+	addedLineStyle = lipgloss.NewStyle().
+			Foreground(fg).
+			Background(addedBg)
+
+	deletedLineStyle = lipgloss.NewStyle().
+				Foreground(fg).
+				Background(deletedBg)
+
+	commentTargetStyle = lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder(), false, false, false, true).
+				BorderForeground(commentLine).
+				Background(lipgloss.Color("#3B2E16")).
+				PaddingLeft(1)
+
+	commentPanel = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(border).
+			Background(commentBg).
+			Padding(0, 1)
+
+	commentHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(fg)
 )

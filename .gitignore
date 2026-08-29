@@ -13,3 +13,4 @@
 *.test
 *.out
 dependencias.md
+.cache/go-build/

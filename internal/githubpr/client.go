@@ -11,6 +11,7 @@ import (
 // Info son los metadatos del PR que se muestran en el header de la TUI.
 type Info struct {
 	Title        string `json:"title"`
+	State        string `json:"state"`
 	BaseRefName  string `json:"baseRefName"`
 	HeadRefName  string `json:"headRefName"`
 	HeadRefOid   string `json:"headRefOid"`
@@ -50,7 +51,7 @@ func FetchInfo(pr PullRequest) (*Info, error) {
 		"--repo",
 		pr.Repository(),
 		"--json",
-		"title,author,baseRefName,headRefName,headRefOid,changedFiles,additions,deletions",
+		"title,state,author,baseRefName,headRefName,headRefOid,changedFiles,additions,deletions",
 	)
 
 	output, err := cmd.CombinedOutput()
