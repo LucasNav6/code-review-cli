@@ -15,8 +15,9 @@ var (
 	headerBg       = lipgloss.Color("#161B22")
 	addedBg        = lipgloss.Color("#12261F")
 	deletedBg      = lipgloss.Color("#2D1517")
-	commentBg      = lipgloss.Color("#111827")
-	commentLine    = lipgloss.Color("#3B82F6")
+	commentLine    = lipgloss.Color("#8B949E")
+	commentLightBg = lipgloss.Color("#DBEAFE")
+	commentDarkFg  = lipgloss.Color("#0F172A")
 	mergedBg       = lipgloss.Color("#8957E5")
 	branchBg       = lipgloss.Color("#13233A")
 	branchFg       = lipgloss.Color("#58A6FF")
@@ -175,14 +176,23 @@ var (
 
 	commentPanel = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(border).
-			Background(commentBg).
+			BorderForeground(strongBorder).
+			Foreground(commentDarkFg).
+			Background(commentLightBg).
 			Padding(0, 1)
 
 	commentLineStyle = lipgloss.NewStyle().
-				Foreground(commentLine)
+				Foreground(dim)
 
 	commentHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(fg)
+				Foreground(commentDarkFg).
+				Background(lipgloss.Color("#BFDBFE")).
+				Padding(0, 1)
+
+	commentBodyStyle = lipgloss.NewStyle().
+				Foreground(commentDarkFg)
+
+	commentMutedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#334155"))
 )

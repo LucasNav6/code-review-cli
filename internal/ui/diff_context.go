@@ -48,7 +48,7 @@ func renderInlineReview(diff string, findings []review.Finding, width int) strin
 		renderedFiles[block.File] = true
 
 		b.WriteString("\n\n")
-		b.WriteString(renderDiffFile(block, fileFindings, width))
+		b.WriteString(renderDiffFile(block, fileFindings, width, true))
 	}
 
 	for file, fileFindings := range groups {
@@ -82,7 +82,7 @@ func renderFilesChanged(diff string, findings []review.Finding, width int) strin
 
 	for _, block := range blocks {
 		b.WriteString("\n\n")
-		b.WriteString(renderDiffFile(block, groups[block.File], width))
+		b.WriteString(renderDiffFile(block, groups[block.File], width, false))
 	}
 
 	return b.String()
@@ -232,10 +232,10 @@ func markCommentLines(blocks []diffBlock, groups map[string][]review.Finding) {
 	}
 }
 
-func renderDiffFile(block diffBlock, findings []review.Finding, width int) string {
+func renderDiffFile(block diffBlock, findings []review.Finding, width int, compact bool) string {
 	title := renderFileRule(block, width)
 	lines := block.Lines
-	if len(findings) > 0 {
+	if compact && len(findings) > 0 {
 		lines = compactDiffLines(block.Lines, findings)
 	}
 
@@ -353,8 +353,11 @@ func renderFileComments(findings []review.Finding, width int) string {
 }
 
 func renderInlineComment(finding review.Finding, width int) string {
-	comment := renderReviewComment(finding, width-6)
-	prefix := commentLineStyle.Render("    │ ")
+	const gutterWidth = 10
+
+	commentWidth := max(30, width-gutterWidth)
+	comment := renderReviewComment(finding, commentWidth)
+	prefix := commentLineStyle.Render(strings.Repeat(" ", gutterWidth))
 
 	var b strings.Builder
 	for _, line := range strings.Split(comment, "\n") {
@@ -378,8 +381,8 @@ func mockFindingGroups(blocks []diffBlock) map[string][]review.Finding {
 					{
 						File:     block.File,
 						Line:     line.NewLine,
-						Category: "mock",
-						Title:    "Comentario de ejemplo",
+						Category: "OWASP TOP 10",
+						Title:    "Rule #1",
 						Comment:  "Este es el lugar donde aparecería una observación del review async, pegada al contexto exacto del cambio.",
 					},
 				},
@@ -391,19 +394,11 @@ func mockFindingGroups(blocks []diffBlock) map[string][]review.Finding {
 }
 
 func renderReviewComment(finding review.Finding, width int) string {
-	header := commentHeaderStyle.Render(fmt.Sprintf("[%s]", strings.ToUpper(finding.Category)))
-	body := ""
+	title := reviewCommentTitle(finding)
+	bodyLines := []string{}
 
-	if finding.Title != "" {
-		body += titleStyle.Render(finding.Title)
-	}
-
-	if finding.Comment != "" {
-		if body != "" {
-			body += "\n"
-		}
-
-		body += wrapText(finding.Comment, width)
+	if strings.TrimSpace(finding.Comment) != "" {
+		bodyLines = append(bodyLines, commentBodyStyle.Render(wrapText(finding.Comment, width-3)))
 	}
 
 	for _, detail := range finding.Details {
@@ -411,18 +406,55 @@ func renderReviewComment(finding review.Finding, width int) string {
 			continue
 		}
 
-		body += "\n\n" + mutedStyle.Render(detail.Label+":") + "\n" + wrapText(detail.Value, width)
+		bodyLines = append(bodyLines, commentMutedStyle.Render(detail.Label+":"))
+		bodyLines = append(bodyLines, commentBodyStyle.Render(wrapText(detail.Value, width-3)))
 	}
 
 	if finding.Suggestion != "" {
-		body += "\n\n" + titleStyle.Render("Suggestion") + "\n" + wrapText(finding.Suggestion, width)
+		bodyLines = append(
+			bodyLines,
+			commentMutedStyle.Render("suggestion:")+" "+commentBodyStyle.Render(wrapText(finding.Suggestion, width-15)),
+		)
 	}
 
-	if strings.TrimSpace(body) == "" {
-		body = mutedStyle.Render("Sin comentario estructurado. Usá Tab para ver la salida completa.")
+	if len(bodyLines) == 0 {
+		bodyLines = append(bodyLines, commentMutedStyle.Render("Sin comentario estructurado. Usá Tab para ver la salida completa."))
 	}
 
-	return commentPanel.Width(width).Render(header + "\n\n" + body)
+	header := commentHeaderStyle.Width(width - 4).Render("code-review  " + title)
+	body := indentCommentBody(bodyLines)
+
+	return commentPanel.Width(width).Render(header + "\n" + body)
+}
+
+func reviewCommentTitle(finding review.Finding) string {
+	category := strings.ToUpper(strings.TrimSpace(finding.Category))
+	title := strings.TrimSpace(finding.Title)
+
+	if category == "" {
+		category = "REVIEW"
+	}
+
+	if title == "" {
+		return category
+	}
+
+	return category + ": " + title
+}
+
+func indentCommentBody(lines []string) string {
+	var b strings.Builder
+
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+
+		b.WriteString("  ")
+		b.WriteString(line)
+	}
+
+	return b.String()
 }
 
 func renderUnmatchedFindings(file string, findings []review.Finding, width int) string {
