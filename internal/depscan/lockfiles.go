@@ -1,5 +1,10 @@
 package depscan
 
+import (
+	"path"
+	"strings"
+)
+
 // lockfileNames son los nombres de archivo de lockfiles/manifiestos que
 // osv-scanner sabe interpretar. Cualquier otro archivo del repositorio se
 // ignora: no hace falta bajar todo el árbol, solo lo que puede tener
@@ -34,4 +39,51 @@ func isKnownLockfile(basename string) bool {
 
 func companionManifestFor(basename string) string {
 	return lockfileNames[basename]
+}
+
+func isKnownDependencyFile(basename string) bool {
+	if isKnownLockfile(basename) {
+		return true
+	}
+
+	for _, companion := range lockfileNames {
+		if companion != "" && basename == companion {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ShouldScanDiff indica si el PR tocó un archivo que justifique analizar
+// dependencias/SBOM. Si no cambian manifests ni lockfiles, el scanner no
+// aporta señal nueva para ese PR.
+func ShouldScanDiff(diff string) bool {
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ "):
+			if isChangedDependencyPath(strings.TrimPrefix(line, "+++ ")) {
+				return true
+			}
+
+		case strings.HasPrefix(line, "--- "):
+			if isChangedDependencyPath(strings.TrimPrefix(line, "--- ")) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func isChangedDependencyPath(diffPath string) bool {
+	diffPath = strings.TrimSpace(diffPath)
+	diffPath = strings.TrimPrefix(diffPath, "a/")
+	diffPath = strings.TrimPrefix(diffPath, "b/")
+
+	if diffPath == "" || diffPath == "/dev/null" {
+		return false
+	}
+
+	return isKnownDependencyFile(path.Base(diffPath))
 }

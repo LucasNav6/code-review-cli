@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/LucasNav6/code-review-cli/internal/depscan"
 	"github.com/LucasNav6/code-review-cli/internal/review"
 )
 
@@ -59,11 +60,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.executingStage = -1
 		m.loadingText = "Loading review comments..."
 		m.reviewLoading = true
-		m.markPromptStagesRunning()
+		m.markAsyncStagesRunning(depscan.ShouldScanDiff(m.diff))
 
 		m.refreshViewport()
 
-		return m, startPromptReviewsCmd(m.diff)
+		return m, startAsyncReviewsCmd(m.pr, m.headSHA, m.diff)
 
 	case claudeStartedMsg:
 		m.claudeChannel = msg.channel
@@ -86,7 +87,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finishPromptReview(msg.stage, msg.result)
 
 	case commandFinishedMsg:
-		return m.applyStageResult(msg.stage, msg.result, msg.rawOutput)
+		return m.applyParallelStageResult(msg.stage, msg.result, msg.rawOutput)
 
 	case stageFailedMsg:
 		if msg.stage >= 0 && msg.stage < len(m.stages) {
@@ -94,7 +95,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.activity = msg.err.Error()
-		m.finishReviewIfAllPromptStagesDone()
+		m.finishReviewIfAllAsyncStagesDone()
 
 		m.refreshViewport()
 
@@ -174,9 +175,10 @@ func (m *Model) resizeViewport() {
 	m.refreshViewport()
 }
 
-func (m *Model) markPromptStagesRunning() {
+func (m *Model) markAsyncStagesRunning(includeDependencies bool) {
 	for i := range m.stages {
-		if m.stages[i].Kind == review.KindPrompt {
+		if m.stages[i].Kind == review.KindPrompt ||
+			(includeDependencies && m.stages[i].Kind == review.KindCommand) {
 			m.stages[i].Status = review.StatusRunning
 		}
 	}
@@ -201,9 +203,10 @@ func (m *Model) refreshViewport() {
 	m.viewport.GotoTop()
 }
 
-func (m *Model) finishReviewIfAllPromptStagesDone() {
+func (m *Model) finishReviewIfAllAsyncStagesDone() {
 	for _, stage := range m.stages {
-		if stage.Kind == review.KindPrompt && stage.Status == review.StatusRunning {
+		if (stage.Kind == review.KindPrompt || stage.Kind == review.KindCommand) &&
+			stage.Status == review.StatusRunning {
 			return
 		}
 	}
@@ -264,7 +267,7 @@ func (m Model) applyParallelStageResult(stageIndex int, result *review.Result, r
 		}
 	}
 
-	m.finishReviewIfAllPromptStagesDone()
+	m.finishReviewIfAllAsyncStagesDone()
 	m.refreshViewport()
 
 	return m, nil

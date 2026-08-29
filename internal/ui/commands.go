@@ -72,16 +72,18 @@ func startPromptReviewCmd(stage review.Stage, diff string, stageIndex int) tea.C
 	}
 }
 
-func startPromptReviewsCmd(diff string) tea.Cmd {
+func startAsyncReviewsCmd(pr githubpr.PullRequest, headSHA string, diff string) tea.Cmd {
 	stages := review.DefaultStages()
 	commands := make([]tea.Cmd, 0, len(stages))
 
 	for i, stage := range stages {
-		if stage.Kind != review.KindPrompt {
-			continue
-		}
+		switch {
+		case stage.Kind == review.KindPrompt:
+			commands = append(commands, startPromptReviewCmd(stage, diff, i))
 
-		commands = append(commands, startPromptReviewCmd(stage, diff, i))
+		case stage.Kind == review.KindCommand && depscan.ShouldScanDiff(diff):
+			commands = append(commands, runDependencyScanCmd(pr, headSHA, i))
+		}
 	}
 
 	return tea.Batch(commands...)

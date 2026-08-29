@@ -7,7 +7,7 @@ import (
 	"github.com/LucasNav6/code-review-cli/internal/review"
 )
 
-func TestPromptStageProgressIgnoresCommandStages(t *testing.T) {
+func TestAsyncStageProgressSkipsPendingCommandStage(t *testing.T) {
 	stages := review.DefaultStages()
 
 	for i := range stages {
@@ -19,14 +19,33 @@ func TestPromptStageProgressIgnoresCommandStages(t *testing.T) {
 	stages[0].Status = review.StatusClean
 	stages[1].Status = review.StatusPending
 
-	done, total := promptStageProgress(stages)
+	done, total := asyncStageProgress(stages)
 
 	if done != 1 || total != 4 {
 		t.Fatalf("expected progress 1/4, got %d/%d", done, total)
 	}
 }
 
-func TestFinishReviewIfAllPromptStagesDoneIgnoresCommandStages(t *testing.T) {
+func TestAsyncStageProgressIncludesRunningCommandStage(t *testing.T) {
+	stages := review.DefaultStages()
+
+	for i := range stages {
+		if stages[i].Kind == review.KindPrompt || stages[i].Kind == review.KindCommand {
+			stages[i].Status = review.StatusRunning
+		}
+	}
+
+	stages[0].Status = review.StatusClean
+	stages[1].Status = review.StatusFindings
+
+	done, total := asyncStageProgress(stages)
+
+	if done != 2 || total != 5 {
+		t.Fatalf("expected progress 2/5, got %d/%d", done, total)
+	}
+}
+
+func TestFinishReviewIfAllAsyncStagesDoneIgnoresSkippedCommandStage(t *testing.T) {
 	model := New(*testPullRequest())
 	model.stages = review.DefaultStages()
 	model.reviewLoading = true
@@ -38,7 +57,7 @@ func TestFinishReviewIfAllPromptStagesDoneIgnoresCommandStages(t *testing.T) {
 	}
 
 	model.stages[1].Status = review.StatusPending
-	model.finishReviewIfAllPromptStagesDone()
+	model.finishReviewIfAllAsyncStagesDone()
 
 	if !model.done {
 		t.Fatal("expected model to be done when all prompt stages are done")

@@ -228,18 +228,22 @@ func (m Model) renderStickyLoadingBar(width int) string {
 		return ""
 	}
 
-	done, total := promptStageProgress(m.stages)
+	done, total := asyncStageProgress(m.stages)
 	status := m.spinner.View() + " " + titleStyle.Render(fmt.Sprintf("Loading review comments %d/%d", done, total))
 	detail := mutedStyle.Render("Claude checks run in parallel · diff stays available")
 
 	return loadingBarStyle.Width(width).Render(status + "  " + detail)
 }
 
-func promptStageProgress(stages []review.Stage) (int, int) {
+func asyncStageProgress(stages []review.Stage) (int, int) {
 	var done, total int
 
 	for _, stage := range stages {
-		if stage.Kind != review.KindPrompt {
+		if stage.Kind == review.KindCommand && stage.Status == review.StatusPending {
+			continue
+		}
+
+		if stage.Kind != review.KindPrompt && stage.Kind != review.KindCommand {
 			continue
 		}
 
