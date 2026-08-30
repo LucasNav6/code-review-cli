@@ -47,7 +47,7 @@ func TestRenderInlineReviewIncludesDiffAndComment(t *testing.T) {
 	for _, expected := range []string{
 		"internal/app.go",
 		"+ func risky() {}",
-		"SECURITY: Avoid risky helper",
+		"[SECURITY]",
 		"This helper has no validation.",
 	} {
 		if !strings.Contains(rendered, expected) {
@@ -56,7 +56,7 @@ func TestRenderInlineReviewIncludesDiffAndComment(t *testing.T) {
 	}
 
 	codeIndex := strings.Index(rendered, "+ func risky() {}")
-	commentIndex := strings.Index(rendered, "SECURITY: Avoid risky helper")
+	commentIndex := strings.Index(rendered, "[SECURITY]")
 	if codeIndex == -1 || commentIndex == -1 || commentIndex < codeIndex {
 		t.Fatalf("expected comment to render inline after target line:\n%s", rendered)
 	}
@@ -89,7 +89,7 @@ func TestRenderFilesChangedAddsExplicitInlineComment(t *testing.T) {
 	for _, expected := range []string{
 		"+ func mockTarget() {}",
 		"func stable() {}",
-		"OWASP TOP 10: Rule #1",
+		"[OWASP TOP 10]",
 		"Este es el lugar donde aparecería",
 	} {
 		if !strings.Contains(rendered, expected) {

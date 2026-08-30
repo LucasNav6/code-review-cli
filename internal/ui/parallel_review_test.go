@@ -40,8 +40,8 @@ func TestAsyncStageProgressIncludesRunningCommandStage(t *testing.T) {
 
 	done, total := asyncStageProgress(stages)
 
-	if done != 2 || total != 5 {
-		t.Fatalf("expected progress 2/5, got %d/%d", done, total)
+	if done != 2 || total != 6 {
+		t.Fatalf("expected progress 2/6, got %d/%d", done, total)
 	}
 }
 

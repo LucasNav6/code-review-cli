@@ -5,7 +5,7 @@ package prompts
 
 import _ "embed"
 
-//go:embed templates/security.md
+//go:embed templates/security-owasp.md
 var Security string
 
 //go:embed templates/maintainability.md

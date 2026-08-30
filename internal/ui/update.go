@@ -10,6 +10,7 @@ import (
 
 	"github.com/LucasNav6/code-review-cli/internal/depscan"
 	"github.com/LucasNav6/code-review-cli/internal/review"
+	"github.com/LucasNav6/code-review-cli/internal/secretscan"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -64,7 +65,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.refreshViewport()
 
-		return m, startAsyncReviewsCmd(m.pr, m.headSHA, m.diff)
+		baseRefName := ""
+		if m.prInfo != nil {
+			baseRefName = m.prInfo.BaseRefName
+		}
+
+		return m, startAsyncReviewsCmd(m.pr, m.headSHA, baseRefName, m.diff)
 
 	case claudeStartedMsg:
 		m.claudeChannel = msg.channel
@@ -81,6 +87,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case claudeStatusMsg:
 		m.activity = msg.text
 
+		if msg.stage >= 0 && msg.stage < len(m.stages) {
+			m.stages[msg.stage].Activity = msg.text
+		}
+
 		return m, waitForClaudeEvent(msg.stage, msg.channel)
 
 	case claudeFinishedMsg:
@@ -92,6 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stageFailedMsg:
 		if msg.stage >= 0 && msg.stage < len(m.stages) {
 			m.stages[msg.stage].Status = review.StatusError
+			m.stages[msg.stage].Err = msg.err
 		}
 
 		m.activity = msg.err.Error()
@@ -177,9 +188,23 @@ func (m *Model) resizeViewport() {
 
 func (m *Model) markAsyncStagesRunning(includeDependencies bool) {
 	for i := range m.stages {
-		if m.stages[i].Kind == review.KindPrompt ||
-			(includeDependencies && m.stages[i].Kind == review.KindCommand) {
+		switch {
+		case m.stages[i].Kind == review.KindPrompt:
 			m.stages[i].Status = review.StatusRunning
+
+		case m.stages[i].ShortName == "SBOM":
+			if includeDependencies {
+				m.stages[i].Status = review.StatusRunning
+			} else {
+				m.stages[i].Activity = "skipped — no dependency changes in this diff"
+			}
+
+		case m.stages[i].ShortName == "GITLEAKS":
+			if secretscan.Available() {
+				m.stages[i].Status = review.StatusRunning
+			} else {
+				m.stages[i].Activity = "skipped — gitleaks is not installed"
+			}
 		}
 	}
 }
@@ -235,7 +260,21 @@ func (m Model) finishPromptReview(stageIndex int, rawResult string) (tea.Model, 
 		result = review.FallbackResult(rawResult, stage.ShortName)
 	}
 
+	normalizeStageFindings(result, stage.ShortName)
+
 	return m.applyParallelStageResult(stageIndex, result, rawResult)
+}
+
+func normalizeStageFindings(result *review.Result, category string) {
+	if result == nil {
+		return
+	}
+
+	for i := range result.Findings {
+		if strings.TrimSpace(result.Findings[i].Category) == "" {
+			result.Findings[i].Category = category
+		}
+	}
 }
 
 func (m Model) applyParallelStageResult(stageIndex int, result *review.Result, rawOutput string) (tea.Model, tea.Cmd) {

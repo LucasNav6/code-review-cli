@@ -61,7 +61,9 @@ type Stage struct {
 	Prompt     string
 	OutputPath string
 
-	Status Status
+	Status   Status
+	Err      error
+	Activity string
 
 	RawOutput string
 	Result    *Result
@@ -81,14 +83,14 @@ func DefaultStages() []Stage {
 	return []Stage{
 		{
 			Name:       "Security OWASP",
-			ShortName:  "SECURITY",
+			ShortName:  "SECURITY:OWASP",
 			Prompt:     securityPrompt(),
 			OutputPath: "seguridad.md",
 			Status:     StatusPending,
 		},
 		{
 			Name:       "Dependencies",
-			ShortName:  "DEPENDENCIES",
+			ShortName:  "SBOM",
 			Kind:       KindCommand,
 			OutputPath: "dependencias.md",
 			Status:     StatusPending,
@@ -112,6 +114,13 @@ func DefaultStages() []Stage {
 			ShortName:  "RESILIENCE",
 			Prompt:     resiliencePrompt(),
 			OutputPath: "resilience.md",
+			Status:     StatusPending,
+		},
+		{
+			Name:       "Secrets",
+			ShortName:  "GITLEAKS",
+			Kind:       KindCommand,
+			OutputPath: "gitleaks.md",
 			Status:     StatusPending,
 		},
 	}

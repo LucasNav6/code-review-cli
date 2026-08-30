@@ -278,57 +278,43 @@ Asigná severidad por impacto concreto y explotabilidad realista:
 
 No infles severidad. Una posibilidad teórica no debe tener severidad porque no debe reportarse.
 
-## Output Format
+## Formato de salida obligatorio
 
-Si no encontrás una vulnerabilidad OWASP concreta demostrable desde este cambio, respondé exactamente:
+Si no encontrás observaciones relevantes, respondé exactamente:
 
 NO_FINDINGS
 
-No agregues texto adicional.
+No agregues ninguna otra explicación.
 
-Si encontrás uno o más findings, respondé solamente JSON válido, sin Markdown fuera del JSON, sin bloque de código y sin texto extra.
+Si encontrás una o más observaciones, respondé solamente JSON válido, sin Markdown, sin bloque de código y sin texto extra.
+
+Devolvé únicamente `archivo`, `linea` y `comentario` por cada observación. La categoría no debe venir en la respuesta: la UI ya la conoce por el hilo que ejecutó este prompt.
 
 Usá exactamente esta estructura:
 
 {
-  "summary": "Resumen breve de los hallazgos OWASP encontrados.",
+  "summary": "Resumen breve opcional.",
   "findings": [
     {
       "file": "ruta/al/archivo.ts",
       "line": 123,
-      "category": "OWASP TOP 10",
-      "title": "API1:2023 - Broken Object Level Authorization",
-      "comment": "### Evidence:\nEl cambio usa un identificador controlado por el cliente para consultar el recurso y no se ve una verificación de ownership en el flujo agregado.\n\n### Attack path:\nUn usuario autenticado podría cambiar el identificador por el de otro recurso y alcanzar esta rama si el endpoint queda expuesto con este flujo.\n\n### Impact:\nPodría acceder a información de otro usuario o tenant, comprometiendo autorización a nivel de objeto.\n\n### Remediation:\nValidar ownership o permisos sobre el recurso antes de devolverlo o modificarlo, siguiendo OWASP API1:2023.",
-      "suggestion": "Agregar una verificación explícita de ownership o permisos antes de operar sobre el recurso.",
-      "details": [
-        {
-          "label": "Severity",
-          "value": "HIGH"
-        },
-        {
-          "label": "OWASP",
-          "value": "API1:2023 - Broken Object Level Authorization"
-        }
-      ]
+      "comment": "La validación de este dato quedó después de usarlo para armar la respuesta, así que un valor inesperado ya pasó antes de que se lo frene."
     }
   ]
 }
 
-Reglas obligatorias para que la UI pueda ubicar el comentario:
+Reglas para ubicar comentarios:
 
 * `file` debe ser exactamente la ruta del archivo tal como aparece en el diff, sin prefijos `a/` ni `b/`.
 * `line` debe ser el número de línea nueva del PR, preferentemente una línea agregada (`+`) o modificada.
-* `category` debe ser una etiqueta corta para el encabezado del comentario. Usá `OWASP TOP 10` para API Top 10 o `OWASP ASVS` / `OWASP CHEAT SHEET` cuando corresponda.
-* `title` debe tener este formato: `<OWASP rule/control> - <nombre de la regla>`.
-* `comment` debe contener exactamente estas secciones, en este orden:
-  * `### Evidence:`
-  * `### Attack path:`
-  * `### Impact:`
-  * `### Remediation:`
-* `comment` debe explicar el finding en español natural de Argentina, profesional y cordial.
-* `suggestion` debe existir solo si hay una acción concreta y mínima.
-* `details` debe incluir siempre `Severity` y `OWASP`.
-* No repitas el mismo texto en `comment`, `suggestion` y `details`.
+* `comment` debe ser el texto completo que verá el usuario en el diff.
+* No incluyas `category`, `title`, `suggestion` ni `details`.
+* No incluyas encabezados Markdown dentro de `comment`.
+* Escribí el comentario en español natural de Argentina, profesional y sutil.
+* Evitá modismos, `che`, exageraciones, tono acusatorio o frases robóticas.
+* Contá el problema como se lo dirías a un compañero al pasar, no como si completaras una plantilla de "qué está mal / por qué importa / cuál es el fix". Que se entienda todo eso, pero fundido en una idea natural, sin marcar cada parte por separado.
+* No repitas siempre la misma construcción de frase; variá cómo arranca cada comentario.
+* Si hay incertidumbre razonable, plantealo como sugerencia de revisión.
 
 A continuación se encuentra el diff del Pull Request:
 

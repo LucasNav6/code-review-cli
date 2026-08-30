@@ -118,13 +118,6 @@ var (
 			Background(branchBg).
 			Padding(0, 1)
 
-	loadingBarStyle = lipgloss.NewStyle().
-			Foreground(fg).
-			Background(headerBg).
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(strongBorder).
-			Padding(0, 1)
-
 	fileHeaderStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(fg).
@@ -186,13 +179,17 @@ var (
 				Foreground(dim)
 
 	commentHeaderStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#CDE3FF")).
+			Background(commentHeaderBg).
+			Padding(0, 1)
+
+	commentCategoryStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("#CDE3FF")).
-				Background(commentHeaderBg).
-				Padding(0, 1)
+				Foreground(severityAccent)
 
 	commentBodyStyle = lipgloss.NewStyle().
-				Foreground(commentFg)
+			Foreground(commentFg)
 
 	commentMutedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#8EA4C8"))

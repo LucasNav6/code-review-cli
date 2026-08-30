@@ -6,14 +6,15 @@ import (
 	"github.com/LucasNav6/code-review-cli/internal/review"
 )
 
-// section agrupa una o más stages bajo una misma tab visual. Dependencies
-// vive dentro de RISK porque, para quien lee el review, ambas responden la
-// misma pregunta ("¿este PR introduce riesgo?"): una la contesta un LLM
-// leyendo el diff, la otra un scanner de vulnerabilidades conocidas.
+// section agrupa una o más stages bajo una misma tab visual. Dependencies y
+// Secrets viven dentro de RISK porque, para quien lee el review, las tres
+// responden la misma pregunta ("¿este PR introduce riesgo?"): una la
+// contesta un LLM leyendo el diff, las otras dos un chequeo determinístico
+// (SBOM/vulnerabilidades conocidas y secretos expuestos).
 //
 // El orden y el agrupamiento de stageIndices asume el pipeline fijo de
-// review.DefaultStages(): 0=Security, 1=Dependencies, 2=Readability,
-// 3=Reliability, 4=Resilience.
+// review.DefaultStages(): 0=Security, 1=Dependencies (SBOM), 2=Readability,
+// 3=Reliability, 4=Resilience, 5=Secrets (gitleaks).
 type section struct {
 	Label        string
 	Subtitle     string
@@ -25,7 +26,7 @@ func sections() []section {
 		{
 			Label:        "RISK",
 			Subtitle:     "Security and dependency risks introduced by this Pull Request.",
-			StageIndices: []int{0, 1},
+			StageIndices: []int{0, 1, 5},
 		},
 		{
 			Label:        "Readability",

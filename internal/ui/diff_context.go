@@ -365,7 +365,6 @@ func renderInlineComment(finding review.Finding, width int) string {
 }
 
 func renderReviewComment(finding review.Finding, width int) string {
-	title := reviewCommentTitle(finding)
 	bodyLines := []string{}
 
 	if strings.TrimSpace(finding.Comment) != "" {
@@ -392,25 +391,25 @@ func renderReviewComment(finding review.Finding, width int) string {
 		bodyLines = append(bodyLines, commentMutedStyle.Render("Sin comentario estructurado. Usá Tab para ver la salida completa."))
 	}
 
-	header := commentHeaderStyle.Width(width - 4).Render("code-review  " + title)
+	author := commentHeaderStyle.Width(width - 4).Render("@code-review (agent)")
+	category := renderCommentCategoryRule(finding.Category, width-4)
 	body := indentCommentBody(bodyLines)
 
-	return commentPanel.Width(width).Render(header + "\n" + body)
+	return commentPanel.Width(width).Render(author + "\n" + category + "\n" + body)
 }
 
-func reviewCommentTitle(finding review.Finding) string {
-	category := strings.ToUpper(strings.TrimSpace(finding.Category))
-	title := strings.TrimSpace(finding.Title)
-
-	if category == "" {
-		category = "REVIEW"
+func renderCommentCategoryRule(category string, width int) string {
+	label := "[" + strings.ToUpper(strings.TrimSpace(category)) + "]"
+	if label == "[]" {
+		label = "[REVIEW]"
 	}
 
-	if title == "" {
-		return category
+	labelWidth := lipgloss.Width(label)
+	if labelWidth >= width {
+		return commentCategoryStyle.Render(truncateRunes(label, width))
 	}
 
-	return category + ": " + title
+	return commentCategoryStyle.Render(label + strings.Repeat("─", width-labelWidth))
 }
 
 func indentCommentBody(lines []string) string {

@@ -48,11 +48,15 @@ func (m Model) render() string {
 		return lipgloss.NewStyle().Padding(1, 2).Render(content)
 	}
 
+	commandSummary := m.renderCommandStagesSummary(totalWidth)
 	content := m.renderContent(totalWidth)
 	loadingBar := m.renderStickyLoadingBar(totalWidth)
 	footer := m.renderFooter(totalWidth)
 
 	parts := []string{header}
+	if commandSummary != "" {
+		parts = append(parts, "", commandSummary)
+	}
 	if loadingBar != "" {
 		parts = append(parts, "", loadingBar)
 	}
@@ -165,6 +169,90 @@ func (m Model) renderHeader(width int) string {
 	return body
 }
 
+// renderCommandStagesSummary arma el resumen de las etapas KindCommand
+// (SBOM, gitleaks): a diferencia de las etapas que le mandan el diff a
+// Claude, estas no apuntan a una línea puntual del PR sino a un chequeo
+// general, así que no tiene sentido mostrarlas como comentarios inline.
+// Se muestran acá, debajo del header, como un bloque aparte.
+func (m Model) renderCommandStagesSummary(width int) string {
+	var lines []string
+
+	for _, stage := range m.stages {
+		if stage.Kind != review.KindCommand {
+			continue
+		}
+
+		if line := renderCommandStageLine(stage, width); line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+
+	rule := lipgloss.NewStyle().Foreground(border).Render(strings.Repeat("─", width))
+
+	return rule + "\n" + strings.Join(lines, "\n")
+}
+
+// renderCommandStageLine devuelve la línea de resumen de una etapa
+// KindCommand, o "" mientras todavía no hay nada que mostrar (pendiente o
+// corriendo).
+func renderCommandStageLine(stage review.Stage, width int) string {
+	switch stage.Status {
+	case review.StatusError:
+		return mutedStyle.Render(fmt.Sprintf("%s error: %s", stage.ShortName, stage.Err.Error()))
+
+	case review.StatusClean:
+		return mutedStyle.Render(stage.ShortName + " Not found")
+
+	case review.StatusFindings:
+		return renderCommandStageFindings(stage, width)
+
+	default:
+		return ""
+	}
+}
+
+// renderCommandStageFindings arma el bloque "SBOM____________[3]" seguido de
+// una línea por hallazgo, para una etapa KindCommand que sí encontró algo.
+func renderCommandStageFindings(stage review.Stage, width int) string {
+	findings := stage.Findings()
+
+	badge := fmt.Sprintf("[%d]", len(findings))
+	fill := width - lipgloss.Width(stage.ShortName) - lipgloss.Width(badge)
+	if fill < 1 {
+		fill = 1
+	}
+
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render(stage.ShortName + strings.Repeat("_", fill) + badge))
+
+	for _, finding := range findings {
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("- " + truncateRunes(commandFindingSummary(finding), width-2)))
+	}
+
+	return b.String()
+}
+
+// commandFindingSummary arma una línea legible por hallazgo (título si hay,
+// si no el comentario), con el archivo entre paréntesis cuando se conoce.
+func commandFindingSummary(finding review.Finding) string {
+	label := strings.TrimSpace(finding.Title)
+	if label == "" {
+		label = strings.TrimSpace(finding.Comment)
+	}
+
+	if finding.File == "" {
+		return label
+	}
+
+	return fmt.Sprintf("%s (%s)", label, finding.File)
+}
+
 // =============================================================================
 // SECTION TABS
 // =============================================================================
@@ -223,16 +311,96 @@ func (m Model) renderContent(width int) string {
 	return m.viewport.View()
 }
 
+// renderStickyLoadingBar arma el panel fijo de progreso: una línea de
+// resumen ("Loading review comments N/total. <detalle>") y, debajo, una
+// fila fija por cada etapa mostrando qué está haciendo ahora mismo (o por
+// qué se saltea), para que se vea movimiento real del pipeline en paralelo.
 func (m Model) renderStickyLoadingBar(width int) string {
 	if m.diff == "" || !m.reviewLoading {
 		return ""
 	}
 
-	done, total := asyncStageProgress(m.stages)
-	status := m.spinner.View() + " " + titleStyle.Render(fmt.Sprintf("Loading review comments %d/%d", done, total))
-	detail := mutedStyle.Render("Claude checks run in parallel · diff stays available")
+	rule := lipgloss.NewStyle().Foreground(border).Render(strings.Repeat("─", width))
 
-	return loadingBarStyle.Width(width).Render(status + "  " + detail)
+	done, total := asyncStageProgress(m.stages)
+	detail := strings.TrimSpace(m.activity)
+	if detail == "" {
+		detail = "Claude checks run in parallel · diff stays available"
+	}
+
+	headline := m.spinner.View() + " " +
+		titleStyle.Render(fmt.Sprintf("Loading review comments %d/%d.", done, total)) +
+		" " + mutedStyle.Render(detail)
+
+	lines := []string{rule, headline, rule}
+
+	for _, stage := range m.stages {
+		lines = append(lines, m.renderStageActivityLine(stage, width))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderStageActivityLine arma la fila fija de una etapa dentro del panel de
+// progreso: ícono de estado, nombre corto y el detalle de qué está haciendo
+// (o el motivo por el que se salteó, o el resultado final).
+func (m Model) renderStageActivityLine(stage review.Stage, width int) string {
+	icon := m.stageStatusIcon(stage.Status)
+	label := mutedStyle.Render(fmt.Sprintf("%-14s", stage.ShortName))
+	detail := mutedStyle.Render(stageActivityDetail(stage))
+
+	return truncateRunes(icon+" "+label+" "+detail, width)
+}
+
+func (m Model) stageStatusIcon(status review.Status) string {
+	switch status {
+	case review.StatusRunning:
+		return m.spinner.View()
+	case review.StatusClean, review.StatusFindings:
+		return successStyle.Render("✓")
+	case review.StatusError:
+		return errorStyle.Render("✗")
+	default:
+		return dimStyle.Render("○")
+	}
+}
+
+// stageActivityDetail decide qué texto mostrar en la fila de una etapa:
+// prioriza Activity (texto puntual, seteado por eventos de Claude o por el
+// motivo de un skip) y si no hay nada específico, cae a un texto genérico
+// según el Status.
+func stageActivityDetail(stage review.Stage) string {
+	if detail := strings.TrimSpace(stage.Activity); detail != "" {
+		return detail
+	}
+
+	switch stage.Status {
+	case review.StatusRunning:
+		return defaultRunningActivity(stage.ShortName)
+	case review.StatusClean:
+		return "no findings"
+	case review.StatusFindings:
+		return fmt.Sprintf("%d finding(s)", len(stage.Findings()))
+	case review.StatusError:
+		if stage.Err != nil {
+			return stage.Err.Error()
+		}
+
+		return "error"
+	default:
+		return "pending"
+	}
+}
+
+func defaultRunningActivity(shortName string) string {
+	switch shortName {
+	case "SBOM":
+		return "scanning dependencies..."
+	case "GITLEAKS":
+		return "scanning for secrets..."
+	default:
+		return "reviewing the diff..."
+	}
 }
 
 func asyncStageProgress(stages []review.Stage) (int, int) {

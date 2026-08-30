@@ -94,36 +94,25 @@ Por ejemplo:
 
 ## Formato de salida obligatorio
 
-Si NO encontrás ningún problema relevante, respondé exactamente:
+Si no encontrás observaciones relevantes, respondé exactamente:
 
 NO_FINDINGS
 
-No agregues ningún otro texto.
+No agregues ninguna otra explicación.
 
-Si encontrás uno o más problemas, respondé solamente con JSON válido, sin Markdown, sin bloque de código y sin texto extra.
+Si encontrás una o más observaciones, respondé solamente JSON válido, sin Markdown, sin bloque de código y sin texto extra.
+
+Devolvé únicamente `archivo`, `linea` y `comentario` por cada observación. La categoría no debe venir en la respuesta: la UI ya la conoce por el hilo que ejecutó este prompt.
 
 Usá exactamente esta estructura:
 
 {
-  "summary": "Resumen breve de los hallazgos de resiliencia y observabilidad.",
+  "summary": "Resumen breve opcional.",
   "findings": [
     {
       "file": "ruta/al/archivo.ts",
       "line": 123,
-      "category": "RESILIENCE",
-      "title": "Falta contexto operativo al propagar el error",
-      "comment": "Acá estaría bueno conservar un poco más de contexto cuando falla la llamada externa. Incluir el identificador de la integración permitiría rastrear el problema mucho más rápido en producción.",
-      "suggestion": "Propagar o loguear el identificador de integración junto con el error, evitando payloads sensibles.",
-      "details": [
-        {
-          "label": "Comportamiento ante fallo",
-          "value": "La operación falla, pero se pierde contexto útil."
-        },
-        {
-          "label": "Observabilidad",
-          "value": "El error no permite identificar qué recurso estaba siendo procesado."
-        }
-      ]
+      "comment": "La validación de este dato quedó después de usarlo para armar la respuesta, así que un valor inesperado ya pasó antes de que se lo frene."
     }
   ]
 }
@@ -132,11 +121,14 @@ Reglas para ubicar comentarios:
 
 * `file` debe ser exactamente la ruta del archivo tal como aparece en el diff, sin prefijos `a/` ni `b/`.
 * `line` debe ser el número de línea nueva del PR, preferentemente una línea agregada (`+`) o modificada.
-* `category` debe ser corta y apta para mostrarse como título inline.
-* `title` debe ser específico y breve.
-* `comment` debe ser el texto principal que se mostrará pegado al diff.
-* `suggestion` debe existir solo si hay una acción concreta y útil.
-* `details` debe incluir comportamiento ante fallo u observabilidad, no repetir el comentario.
+* `comment` debe ser el texto completo que verá el usuario en el diff.
+* No incluyas `category`, `title`, `suggestion` ni `details`.
+* No incluyas encabezados Markdown dentro de `comment`.
+* Escribí el comentario en español natural de Argentina, profesional y sutil.
+* Evitá modismos, `che`, exageraciones, tono acusatorio o frases robóticas.
+* Contá el problema como se lo dirías a un compañero al pasar, no como si completaras una plantilla de "qué está mal / por qué importa / cuál es el fix". Que se entienda todo eso, pero fundido en una idea natural, sin marcar cada parte por separado.
+* No repitas siempre la misma construcción de frase; variá cómo arranca cada comentario.
+* Si hay incertidumbre razonable, plantealo como sugerencia de revisión.
 
 A continuación se encuentra el diff del Pull Request:
 
