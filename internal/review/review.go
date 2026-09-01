@@ -4,26 +4,38 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/LucasNav6/code-review-cli/helpers"
+	"github.com/LucasNav6/code-review-cli/internal/claude"
 	"github.com/LucasNav6/code-review-cli/internal/githubcli"
-	"github.com/LucasNav6/code-review-cli/internal/logging"
 )
 
 const diffFetchTimeout = 30 * time.Second
 
+// ValidateGitHubCLI checks that the local `gh` CLI is installed.
+// It returns a raw sentinel so the caller can route the failure to
+// its logging facade.
 func ValidateGitHubCLI(ctx context.Context) error {
 	return githubcli.ValidateInstalled(ctx)
 }
 
+// ValidateClaude checks that the local `claude` CLI is installed and
+// authenticated. Thin re-export of internal/claude.
+func ValidateClaude(ctx context.Context) error {
+	return claude.ValidateInstalled(ctx)
+}
+
+// StoreDiff fetches the diff for the given PR URL and persists it
+// through diffStore. Errors are returned raw so the caller controls
+// logging.
 func StoreDiff(ctx context.Context, diffStore Store, url string) error {
 	url = strings.TrimSpace(url)
 	if url == "" {
-		return logging.LogError(os.Stderr, logging.ErrorTypeInput, 1, helpers.ErrEmptyURL)
+		return helpers.ErrEmptyURL
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, diffFetchTimeout)
@@ -38,7 +50,7 @@ func StoreDiff(ctx context.Context, diffStore Store, url string) error {
 
 	if err := command.Run(); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return logging.LogError(os.Stderr, logging.ErrorTypeDiffFetch, 1, helpers.ErrDiffFetchFailed)
+			return helpers.ErrDiffFetchFailed
 		}
 
 		var exitErr *exec.ExitError
@@ -46,12 +58,15 @@ func StoreDiff(ctx context.Context, diffStore Store, url string) error {
 			return categoriseGHError(stderr.String())
 		}
 
-		return logging.LogError(os.Stderr, logging.ErrorTypeGitHubCLIUnavailable, 1, helpers.ErrGitHubCLIUnavailable)
+		return helpers.ErrGitHubCLIUnavailable
 	}
 
 	return diffStore.Save(stdout.Bytes())
 }
 
+// categoriseGHError maps stderr from `gh pr diff` to a sentinel error.
+// The mapping is intentionally narrow: callers turn these into user-
+// facing error messages via their own logging facade.
 func categoriseGHError(stderr string) error {
 	message := strings.ToLower(stderr)
 
@@ -59,12 +74,12 @@ func categoriseGHError(stderr string) error {
 	case strings.Contains(message, "not logged into") ||
 		strings.Contains(message, "not authenticated") ||
 		strings.Contains(message, "aborted: you are not logged"):
-		return logging.LogError(os.Stderr, logging.ErrorTypeGitHubAuth, 1, helpers.ErrGHNotAuthenticated)
+		return helpers.ErrGHNotAuthenticated
 	case strings.Contains(message, "no pull requests found") ||
 		strings.Contains(message, "could not resolve to a repository") ||
 		strings.Contains(message, "not found"):
-		return logging.LogError(os.Stderr, logging.ErrorTypeGitHubPullRequest, 1, helpers.ErrPRNotFound)
+		return helpers.ErrPRNotFound
 	}
 
-	return logging.LogError(os.Stderr, logging.ErrorTypeDiffFetch, 1, helpers.ErrDiffFetchFailed)
+	return fmt.Errorf("%w: %s", helpers.ErrDiffFetchFailed, stderr)
 }

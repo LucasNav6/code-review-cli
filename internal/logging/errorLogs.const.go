@@ -14,4 +14,5 @@ const (
 	ErrorTypeDiffFetch              ErrorType = "diff_fetch"
 	ErrorTypeDiffStore              ErrorType = "diff_store"
 	ErrorTypeMetadata               ErrorType = "metadata_fetch"
+	ErrorTypeClaude                 ErrorType = "claude_run"
 )

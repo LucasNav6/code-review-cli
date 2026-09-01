@@ -1,11 +1,11 @@
 package review
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/LucasNav6/code-review-cli/helpers"
-	"github.com/LucasNav6/code-review-cli/internal/logging"
 )
 
 const diffFilename = "review.diff"
@@ -29,13 +29,17 @@ func NewFileStore() FileStore {
 	}
 }
 
+// Save writes the diff to the cache file. Errors are returned as raw
+// sentinels so callers can decide how to surface them — saving the
+// log line in this layer would duplicate messages when the caller
+// already routes failures through its own logging facade.
 func (s FileStore) Save(diff []byte) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return logging.LogError(os.Stderr, logging.ErrorTypeDiffStore, 1, helpers.ErrDiffStoreFailed)
+		return fmt.Errorf("create cache dir: %w", helpers.ErrDiffStoreFailed)
 	}
 
 	if err := os.WriteFile(s.path, diff, 0o644); err != nil {
-		return logging.LogError(os.Stderr, logging.ErrorTypeDiffStore, 1, helpers.ErrDiffStoreFailed)
+		return fmt.Errorf("write diff: %w", helpers.ErrDiffStoreFailed)
 	}
 
 	return nil
