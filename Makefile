@@ -4,9 +4,9 @@ COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE       := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 MODULE     := github.com/LucasNav6/code-review-cli
 LDFLAGS    := -s -w \
-	-X $(MODULE)/internal/buildinfo.Version=$(VERSION) \
-	-X $(MODULE)/internal/buildinfo.Commit=$(COMMIT) \
-	-X $(MODULE)/internal/buildinfo.Date=$(DATE)
+	-X $(MODULE)/buildinfo.Version=$(VERSION) \
+	-X $(MODULE)/buildinfo.Commit=$(COMMIT) \
+	-X $(MODULE)/buildinfo.Date=$(DATE)
 
 .PHONY: build
 build:

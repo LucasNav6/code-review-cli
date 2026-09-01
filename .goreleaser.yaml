@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: code-review
-    main: ./cmd/code-review
+    main: ./
     binary: code-review
     env:
       - CGO_ENABLED=0
@@ -24,9 +24,9 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
-      - -X github.com/LucasNav6/code-review-cli/internal/buildinfo.Version={{ .Tag }}
-      - -X github.com/LucasNav6/code-review-cli/internal/buildinfo.Commit={{ .ShortCommit }}
-      - -X github.com/LucasNav6/code-review-cli/internal/buildinfo.Date={{ .Date }}
+      - -X github.com/LucasNav6/code-review-cli/buildinfo.Version={{ .Tag }}
+      - -X github.com/LucasNav6/code-review-cli/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/LucasNav6/code-review-cli/buildinfo.Date={{ .Date }}
 
 archives:
   - id: code-review

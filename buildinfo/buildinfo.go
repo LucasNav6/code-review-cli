@@ -3,9 +3,9 @@
 // -ldflags, por ejemplo desde GoReleaser:
 //
 //	go build -ldflags "\
-//	  -X github.com/LucasNav6/code-review-cli/internal/buildinfo.Version=v1.2.3 \
-//	  -X github.com/LucasNav6/code-review-cli/internal/buildinfo.Commit=abc1234 \
-//	  -X github.com/LucasNav6/code-review-cli/internal/buildinfo.Date=2026-08-28T12:00:00Z"
+//	  -X github.com/LucasNav6/code-review-cli/buildinfo.Version=v1.2.3 \
+//	  -X github.com/LucasNav6/code-review-cli/buildinfo.Commit=abc1234 \
+//	  -X github.com/LucasNav6/code-review-cli/buildinfo.Date=2026-08-28T12:00:00Z"
 package buildinfo
 
 var (

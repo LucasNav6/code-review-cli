@@ -79,6 +79,26 @@ make check   # fmt + vet + test
 make build   # compila a bin/code-review con info de versión
 ```
 
+### Logger
+
+```go
+return logging.LogError(os.Stderr, logging.ErrorTypeInput, 1, err)
+logging.LogInfo(os.Stderr, "diff stored", "path", path, "bytes", size)
+logging.LogDebug(os.Stderr, "running gh", "command", "gh pr diff", "url", url)
+logging.LogWarn(os.Stderr, "cache fallback", "dir", dir)
+```
+
+Salida:
+
+```text
+ERRO (12:34) Exit status (1)
+╰─▶ pull request URL is required
+
+INFO (12:34) diff stored
+ | path=/tmp/review.diff
+ | bytes=2048
+```
+
 ### Releases
 
 Los binarios se publican automáticamente vía [GoReleaser](https://goreleaser.com) al pushear un tag `vX.Y.Z`:
