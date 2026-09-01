@@ -94,35 +94,51 @@ Por ejemplo:
 
 ## Formato de salida
 
-Si NO encontrás ningún problema relevante, respondé exactamente:
+Devolvé EXCLUSIVAMENTE un objeto JSON válido (sin texto antes ni después, sin bloques de markdown ```) con la siguiente forma:
 
-NO_FINDINGS
+```json
+{
+  "findings": [
+    {
+      "title": "Título corto del hallazgo (5-8 palabras). Imperativo o sustantivo. Ej: 'Falta manejar fallo del iframe'.",
+      "context": "Una o dos oraciones explicando el problema concreto que observás. Cordial, en español rioplatense.",
+      "impact": [
+        "Consecuencia concreta 1 (una oración corta).",
+        "Consecuencia concreta 2 (una oración corta)."
+      ],
+      "suggestion": "Una sugerencia práctica de cómo arreglarlo. Cordial, en segunda persona opcional.",
+      "category": "RESILIENCE",
+      "file": "ruta/relativa/al/archivo.extension",
+      "line": 123,
+      "snippets": [
+        {
+          "line": 118,
+          "code": "línea exacta como aparece en el diff (con el prefijo +, -, o espacio)"
+        }
+      ]
+    }
+  ]
+}
+```
 
-No agregues ningún otro texto.
+Reglas sobre los snippets:
 
-Si encontrás uno o más problemas, respondé solamente con Markdown utilizando este formato:
+* Incluí entre 3 y 8 líneas por snippet.
+* Si el hallazgo toca varios lugares no consecutivos del mismo archivo, incluí varios snippets (uno por cada bloque).
+* El campo `line` debe ser el número de línea en el archivo NUEVO (post-cambio) donde está el problema principal.
+* Cada snippet es un objeto `{"line": N, "code": "..."}` con la línea EXACTA como aparece en el diff.
+* El campo `code` debe incluir el prefijo (`+`, `-`, o espacio) para preservar el contexto del diff.
 
-# Comportamiento ante Fallos y Observabilidad
+Reglas sobre `impact`:
 
-## Hallazgo 1
+* Máximo 3 ítems.
+* Cada ítem es una oración corta (≤ 15 palabras).
+* Enfocate en consecuencias OPERATIVAS, no técnicas.
 
-**archivo:** ruta/al/archivo.ts
-**línea:** 123
-**categoría:** RESILIENCE
-**comportamiento ante fallo:** Si la API externa falla, la operación termina inmediatamente sin un mecanismo de recuperación.
-**observabilidad:** El error se propaga sin información que permita identificar qué integración o recurso estaba siendo procesado.
-**comentario:** Acá estaría bueno conservar un poco más de contexto cuando falla la llamada externa. Por ejemplo, incluir el identificador de la integración permitiría rastrear el problema mucho más rápido en producción.
+Reglas sobre el objeto raíz:
 
-## Hallazgo 2
-
-**archivo:** ruta/al/archivo.ts
-**línea:** 85
-**categoría:** RESILIENCE
-**comportamiento ante fallo:** Se realiza un retry sin límite explícito, lo que podría mantener la operación ejecutándose indefinidamente ante un fallo persistente.
-**observabilidad:** Existen logs del error, pero no permiten saber cuántos intentos se realizaron.
-**comentario:** Capaz conviene limitar la cantidad de intentos y registrar el número de retry. Así evitamos quedar atrapados ante un error permanente y además queda más claro qué pasó al revisar los logs.
-
-No escribas introducciones, conclusiones ni contenido fuera de este formato.
+* Si NO encontrás ningún problema relevante, devolvé `{"findings": []}`.
+* No incluyas explicaciones, ni introducciones, ni conclusiones fuera del JSON.
 
 A continuación se encuentra el diff del Pull Request:
 

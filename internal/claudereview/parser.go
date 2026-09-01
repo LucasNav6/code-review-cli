@@ -1,26 +1,27 @@
-// Package claudereview parses and renders the structured markdown that
+// Package claudereview parses and renders the structured JSON that
 // the bundled prompt templates ask claude to emit. The shape is:
 //
-//	# <category title>
+//	{
+//	  "findings": [
+//	    {
+//	      "title":       "Falta manejar fallo del iframe",
+//	      "context":     "...",
+//	      "impact":      ["...", "..."],
+//	      "suggestion":  "...",
+//	      "category":    "RESILIENCE",
+//	      "file":        "path/to/file.ext",
+//	      "line":        118,
+//	      "snippets":    [{"line": 118, "code": "+ $monorepo_url = ..."}]
+//	    }
+//	  ]
+//	}
 //
-//	## Hallazgo N
-//
-//	**archivo:** path/to/file.ext
-//	**línea:** 123
-//	**categoría:** RESILIENCE
-//	**comportamiento ante fallo:** ...
-//	**observabilidad:** ...
-//	**comentario:** ...
-//
-// Each "## Hallazgo" section becomes one Finding. A response of just
-// "NO_FINDINGS" parses to an empty slice and is rendered as a success
-// indicator by the caller.
+// An empty findings array renders as a success indicator by the caller.
 package claudereview
 
 import (
+	"encoding/json"
 	"errors"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/LucasNav6/code-review-cli/helpers"
@@ -29,133 +30,113 @@ import (
 // Sentinel errors raised by the parser. They are exported so callers
 // can categorise failures without string matching.
 var (
-	ErrNoFindingsSection = errors.New("claude response contained no `## Hallazgo` section")
-	ErrMalformedFinding  = errors.New("claude response had a Hallazgo block with no `archivo` field")
-	ErrHunkNotFound      = errors.New("no diff hunk covers the line reported by claude")
+	ErrMalformedResponse = errors.New("claude response was not valid JSON")
+	ErrNoFindingsField   = errors.New("claude response did not contain a `findings` field")
+	ErrMalformedFinding  = errors.New("claude response had a finding with no `file` or `title`")
 )
 
 // Finding is one resilience observation emitted by claude. Fields are
 // exported so the renderer can address them by name without coupling
-// to the markdown shape.
+// to the wire format.
 type Finding struct {
-	Number              int
-	Archivo             string
-	Linea               int
-	Categoria           string
-	ComportamientoFallo string
-	Observabilidad      string
-	Comentario          string
+	Title       string    `json:"title"`
+	Context     string    `json:"context"`
+	Impact      []string  `json:"impact"`
+	Suggestion  string    `json:"suggestion"`
+	Category    string    `json:"category"`
+	File        string    `json:"file"`
+	Line        int       `json:"line"`
+	Snippets    []Snippet `json:"snippets"`
 }
 
-// headingRE matches `## Hallazgo <number>` regardless of surrounding
-// whitespace. The header body that follows is read line by line.
-var headingRE = regexp.MustCompile(`(?m)^##\s+Hallazgo\s+(\d+)\s*$`)
-
-// fieldRE captures `**name:** value` pairs. The value can span
-// multiple lines until the next recognised field or the next heading.
-var fieldRE = regexp.MustCompile(`(?m)^\*\*([^*]+):\*\*\s*(.*)$`)
-
-// Parse converts the raw claude response into a list of Finding. It
-// returns an empty slice (not an error) when the response is just
-// "NO_FINDINGS" — that is a valid review outcome, not a parse failure.
-//
-// An error is returned only when the response looks like it was meant
-// to contain findings but the structure is unrecognisable (no heading
-// at all, or a heading with no parseable fields).
-func Parse(markdown string) ([]Finding, error) {
-	trimmed := strings.TrimSpace(markdown)
-	if trimmed == "" || trimmed == "NO_FINDINGS" {
-		return nil, nil
-	}
-
-	indices := headingRE.FindAllStringSubmatchIndex(trimmed, -1)
-	if len(indices) == 0 {
-		return nil, helpers.ErrNoFindingsSection
-	}
-
-	findings := make([]Finding, 0, len(indices))
-	for i, loc := range indices {
-		end := len(trimmed)
-		if i+1 < len(indices) {
-			end = indices[i+1][0]
-		}
-		section := trimmed[loc[1]:end]
-
-		finding, err := parseSection(section)
-		if err != nil {
-			return nil, err
-		}
-		findings = append(findings, finding)
-		finding.Number = i + 1
-		findings[len(findings)-1] = finding
-	}
-
-	return findings, nil
+// Snippet is one block of source code that illustrates a finding.
+// Each entry preserves the original diff prefix (+, -, or space) so
+// the renderer can colour them like a real diff.
+type Snippet struct {
+	Line int    `json:"line"`
+	Code string `json:"code"`
 }
 
-// parseSection extracts the fields of a single `## Hallazgo N` block.
-func parseSection(section string) (Finding, error) {
-	lines := strings.Split(section, "\n")
-
-	var finding Finding
-	var pendingField string
-	var pendingValue strings.Builder
-
-	flush := func() {
-		if pendingField == "" {
-			return
-		}
-		value := strings.TrimSpace(pendingValue.String())
-		assignField(&finding, pendingField, value)
-		pendingField = ""
-		pendingValue.Reset()
-	}
-
-	for _, line := range lines[1:] {
-		if strings.HasPrefix(strings.TrimSpace(line), "## Hallazgo") {
-			continue
-		}
-
-		if matches := fieldRE.FindStringSubmatch(line); matches != nil {
-			flush()
-			pendingField = strings.TrimSpace(matches[1])
-			pendingValue.WriteString(matches[2])
-			continue
-		}
-
-		if pendingField != "" && strings.TrimSpace(line) != "" {
-			if pendingValue.Len() > 0 {
-				pendingValue.WriteString(" ")
-			}
-			pendingValue.WriteString(strings.TrimSpace(line))
-		}
-	}
-	flush()
-
-	if finding.Archivo == "" {
-		return Finding{}, helpers.ErrMalformedFinding
-	}
-	return finding, nil
+// envelope mirrors the top-level shape claude returns. We use a
+// dedicated type so future top-level fields (e.g. "summary") slot in
+// without breaking callers.
+type envelope struct {
+	Findings []Finding `json:"findings"`
 }
 
-// assignField routes a parsed `**name:** value` pair into the
-// matching field on f. Unrecognised keys are silently dropped so
-// future prompt additions do not break older binaries.
-func assignField(f *Finding, name, value string) {
-	switch strings.ToLower(name) {
-	case "archivo":
-		f.Archivo = value
-	case "línea", "linea":
-		if n, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
-			f.Linea = n
-		}
-	case "categoría", "categoria":
-		f.Categoria = value
-	case "comportamiento ante fallo":
-		f.ComportamientoFallo = value
-	case "observabilidad":
-		f.Observabilidad = value
-	case "comentario":
-		f.Comentario = value
+// Parse converts the raw claude response into a list of Finding.
+// Returns ErrMalformedResponse if the payload is not JSON,
+// ErrNoFindingsField if the JSON is valid but missing the findings
+// key, and ErrMalformedFinding if any finding lacks required fields.
+func Parse(response string) ([]Finding, error) {
+	response = strings.TrimSpace(response)
+	if response == "" {
+		return nil, helpers.ErrEmptyResponse
 	}
+
+	// Some claude runs wrap the JSON in markdown fences despite the
+	// prompt telling it not to. Strip them defensively before parsing.
+	response = stripCodeFences(response)
+
+	var env envelope
+	if err := json.Unmarshal([]byte(response), &env); err != nil {
+		return nil, helpers.ErrMalformedResponse
+	}
+
+	// Validate every finding. We accept the slice as-is when it is
+	// empty (no findings is a valid outcome), and reject only when
+	// individual findings are malformed.
+	for i, f := range env.Findings {
+		if f.File == "" || f.Title == "" {
+			return nil, helpers.ErrMalformedFinding
+		}
+		env.Findings[i] = normaliseFinding(f)
+	}
+
+	return env.Findings, nil
+}
+
+// normaliseFinding trims whitespace and fills defaults for fields
+// that claude occasionally omits. Doing it here keeps the renderer
+// free of nil checks.
+func normaliseFinding(f Finding) Finding {
+	f.Title = strings.TrimSpace(f.Title)
+	f.Context = strings.TrimSpace(f.Context)
+	f.Suggestion = strings.TrimSpace(f.Suggestion)
+	f.File = strings.TrimSpace(f.File)
+	f.Category = strings.TrimSpace(f.Category)
+	if f.Category == "" {
+		f.Category = "RESILIENCE"
+	}
+
+	for i, item := range f.Impact {
+		f.Impact[i] = strings.TrimSpace(item)
+	}
+	for i, s := range f.Snippets {
+		f.Snippets[i].Code = strings.TrimSpace(s.Code)
+	}
+	return f
+}
+
+// stripCodeFences removes leading/trailing markdown code fences
+// (```json ... ```) that some claude responses wrap the payload in
+// despite explicit instructions to the contrary. It is intentionally
+// lenient — anything that looks like a fence is removed.
+func stripCodeFences(s string) string {
+	const fence = "```"
+	if !strings.HasPrefix(s, fence) {
+		return s
+	}
+
+	// Drop the opening fence and any language tag after it.
+	rest := strings.TrimPrefix(s, fence)
+	if idx := strings.IndexByte(rest, '\n'); idx >= 0 {
+		rest = rest[idx+1:]
+	}
+
+	// Drop the closing fence if present.
+	if idx := strings.LastIndex(rest, fence); idx >= 0 {
+		rest = rest[:idx]
+	}
+	return strings.TrimSpace(rest)
 }

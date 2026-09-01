@@ -46,4 +46,8 @@ var (
 	ErrProviderNotImpl    = errors.New("LLM provider is not implemented yet")
 	ErrInvalidConfigValue = errors.New("invalid configuration value")
 	ErrConfigNotFound     = errors.New("configuration key not set")
+
+	// claude response.
+	ErrEmptyResponse      = errors.New("claude returned an empty response")
+	ErrMalformedResponse  = errors.New("claude response was not valid JSON")
 )

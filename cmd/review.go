@@ -201,6 +201,7 @@ func renderClaudeResponse(w *os.File, response string) {
 		Added:      ui.Success,
 		Removed:    ui.Danger,
 		Category:   ui.Brand,
+		Accent:     ui.Accent,
 	})
 
 	fmt.Fprintln(w, "─── Claude review ───")
@@ -210,27 +211,11 @@ func renderClaudeResponse(w *os.File, response string) {
 		return
 	}
 
-	hunks := claudereview.ParseHunks(cachedDiffOrEmpty())
-
 	for i, finding := range findings {
 		if i > 0 {
 			fmt.Fprintln(w)
+			fmt.Fprintln(w)
 		}
-		var hunk *claudereview.Hunk
-		if h, ok := claudereview.HunkForLine(hunks, finding.Archivo, finding.Linea); ok {
-			hunk = &h
-		}
-		renderer.Render(w, finding, hunk)
+		renderer.Render(w, finding)
 	}
-}
-
-// cachedDiffOrEmpty returns the diff bytes from disk if available, or
-// an empty string if the file is missing. The renderer is robust to
-// an empty diff so a missing cache file does not abort the review.
-func cachedDiffOrEmpty() string {
-	data, err := os.ReadFile(internalreview.DiffPath())
-	if err != nil {
-		return ""
-	}
-	return string(data)
 }
