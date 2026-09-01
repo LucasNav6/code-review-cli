@@ -1,6 +1,7 @@
 # Build artifacts
 /bin/
 /dist/
+/code-review-cli
 
 # Salidas generadas por `code-review` al correr contra un PR
 /diff_output.txt
