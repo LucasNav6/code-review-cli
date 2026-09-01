@@ -13,4 +13,5 @@ const (
 	ErrorTypeGitHubPullRequest      ErrorType = "github_pull_request"
 	ErrorTypeDiffFetch              ErrorType = "diff_fetch"
 	ErrorTypeDiffStore              ErrorType = "diff_store"
+	ErrorTypeMetadata               ErrorType = "metadata_fetch"
 )
