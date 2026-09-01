@@ -40,4 +40,10 @@ var (
 	ErrNoFindingsSection = errors.New("claude response contained no `## Hallazgo` section")
 	ErrMalformedFinding  = errors.New("claude response had a Hallazgo block with no `archivo` field")
 	ErrHunkNotFound      = errors.New("no diff hunk covers the line reported by claude")
+
+	// config + llm.
+	ErrUnknownProvider    = errors.New("unknown LLM provider")
+	ErrProviderNotImpl    = errors.New("LLM provider is not implemented yet")
+	ErrInvalidConfigValue = errors.New("invalid configuration value")
+	ErrConfigNotFound     = errors.New("configuration key not set")
 )
