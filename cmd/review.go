@@ -7,8 +7,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/LucasNav6/code-review-cli/helpers"
-	"github.com/LucasNav6/code-review-cli/internal/claude"
 	"github.com/LucasNav6/code-review-cli/internal/claudereview"
+	"github.com/LucasNav6/code-review-cli/internal/config"
+	"github.com/LucasNav6/code-review-cli/internal/llm"
 	"github.com/LucasNav6/code-review-cli/internal/loading"
 	"github.com/LucasNav6/code-review-cli/internal/logging"
 	"github.com/LucasNav6/code-review-cli/internal/pr"
@@ -21,8 +22,12 @@ import (
 // at run time with the cached diff bytes.
 const resiliencePromptPath = "internal/prompts/resilience.md"
 
+// providerFlag is the value the user passed via --provider. When empty,
+// the review falls back to the persisted config and then to the default.
+var providerFlag string
+
 func newReviewCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:           "review",
 		Short:         "Store a GitHub Pull Request diff",
 		Args:          cobra.NoArgs,
@@ -32,6 +37,12 @@ func newReviewCmd() *cobra.Command {
 			return runReviewCommand(cmd)
 		},
 	}
+
+	// --provider overrides the persisted config for a single invocation.
+	cmd.Flags().StringVar(&providerFlag, "provider", "",
+		"LLM provider to use (claude, codex) — overrides the saved config")
+
+	return cmd
 }
 
 func runReviewCommand(cmd *cobra.Command) error {
@@ -41,8 +52,10 @@ func runReviewCommand(cmd *cobra.Command) error {
 		return logging.LogError(os.Stderr, logging.ErrorTypeCommandFlag, exitCode, helpers.ErrCommandFlag)
 	}
 
-	// 2) Validate that gh is installed. gh is mandatory for every step
-	// below, so a failure here is fatal.
+	// 2) Validate that the configured LLM provider is installed.
+	// gh is also validated here (it is mandatory for the diff fetch
+	// below); failures are fatal so the rest of the command does not
+	// run on a broken machine.
 	if err := loading.Run(os.Stderr, "Validating GitHub CLI installation", func() error {
 		return internalreview.ValidateGitHubCLI(cmd.Context())
 	}); err != nil {
@@ -76,25 +89,35 @@ func runReviewCommand(cmd *cobra.Command) error {
 	}
 	os.Stdout.WriteString(header.Render())
 
-	// 5) Ask claude to review the diff using the resilience checklist.
-	// Non-blocking: failures here only emit a warning so the user still
-	// gets the diff and the header they would have had otherwise.
-	runClaudeReview(cmd)
+	// 5) Ask the configured LLM provider to review the diff using
+	// the resilience checklist. Non-blocking: failures here only emit
+	// a warning so the user still gets the diff and the header they
+	// would have had otherwise.
+	runLLMReview(cmd)
 
 	return nil
 }
 
-// runClaudeReview loads the cached diff, builds the prompt with the
-// resilience template, pipes it to `claude -p`, parses the response,
-// and renders each Finding as a styled comment-style block.
-//
-// All logging goes through logging.LogWarn — the function never
-// returns errors to the caller because every internal failure is
-// non-blocking by design.
-func runClaudeReview(cmd *cobra.Command) {
+// runLLMReview loads the cached diff, builds the prompt, and pipes it
+// through whatever provider is configured (or the one selected by
+// --provider). All logging goes through logging.LogWarn — the
+// function never returns errors to the caller because every internal
+// failure is non-blocking by design.
+func runLLMReview(cmd *cobra.Command) {
+	provider, providerName, err := resolveProvider(cmd)
+	if err != nil {
+		logging.LogWarn(os.Stderr, fmt.Sprintf("LLM review skipped: %v", err))
+		return
+	}
+
+	// Provider stub: codex returns ErrProviderNotImpl for both validate
+	// and run. Surface that as the spinner message so the user sees the
+	// provider name on screen.
+	spinnerMessage := fmt.Sprintf("Reviewing diff with %s", providerName)
+
 	var response string
 
-	err := loading.Run(os.Stderr, "Reviewing diff with Claude", func() error {
+	runErr := loading.Run(os.Stderr, spinnerMessage, func() error {
 		diff, loadErr := internalreview.LoadStoredDiff()
 		if loadErr != nil {
 			return loadErr
@@ -105,14 +128,11 @@ func runClaudeReview(cmd *cobra.Command) {
 			return buildErr
 		}
 
-		// Re-check claude at this point too: a user who installed or
-		// authenticated claude after the first validation should still
-		// get a review.
-		if validateErr := internalreview.ValidateClaude(cmd.Context()); validateErr != nil {
+		if validateErr := provider.ValidateInstalled(cmd.Context()); validateErr != nil {
 			return validateErr
 		}
 
-		out, runErr := claude.Run(cmd.Context(), prompt)
+		out, runErr := provider.Run(cmd.Context(), prompt)
 		if runErr != nil {
 			return runErr
 		}
@@ -121,12 +141,43 @@ func runClaudeReview(cmd *cobra.Command) {
 		return nil
 	})
 
-	if err != nil {
-		logging.LogWarn(os.Stderr, fmt.Sprintf("claude review skipped: %v", err))
+	if runErr != nil {
+		logging.LogWarn(os.Stderr, fmt.Sprintf("LLM review skipped: %v", runErr))
 		return
 	}
 
 	renderClaudeResponse(os.Stdout, response)
+}
+
+// resolveProvider picks the LLM provider for the current invocation.
+// The lookup order is:
+//  1. --provider flag (highest priority, overrides everything)
+//  2. the value persisted in the config file
+//  3. the default ("claude")
+func resolveProvider(cmd *cobra.Command) (llm.Provider, string, error) {
+	name := providerFlag
+	if name == "" {
+		store, err := config.DefaultStore()
+		if err == nil {
+			saved, getErr := store.GetProvider()
+			if getErr == nil {
+				name = saved
+			}
+		}
+	}
+	if name == "" {
+		name = config.DefaultProvider
+	}
+
+	if !config.KnownProvider(name) {
+		return nil, "", fmt.Errorf("%w: %q (known: %v)", helpers.ErrInvalidConfigValue, name, config.KnownProviderNames())
+	}
+
+	provider, err := llm.New(name)
+	if err != nil {
+		return nil, name, err
+	}
+	return provider, name, nil
 }
 
 // renderClaudeResponse parses claude's markdown, matches each finding
