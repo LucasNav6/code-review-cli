@@ -101,5 +101,5 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&versionFlag, "version", "v", false,
 		"Print version information and exit")
 
-	rootCmd.AddCommand(newReviewCmd(), newUpdateCmd())
+	rootCmd.AddCommand(newReviewCmd(), newUpdateCmd(), newConfigCmd())
 }
