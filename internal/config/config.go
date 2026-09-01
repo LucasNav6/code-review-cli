@@ -25,6 +25,12 @@ import (
 // Config is the on-disk shape of the user's preferences. Fields are
 // pointers so we can distinguish "not set" from "set to zero value".
 type Config struct {
+	// Comment is a free-form annotation persisted at the top of the
+	// JSON file. The field name starts with "//" so the key looks like
+	// a JSON comment to anyone reading the file by hand; encoding/json
+	// ignores the leading slashes when serialising/deserialising.
+	Comment string `json:"//_comment,omitempty"`
+
 	// Provider is the name of the LLM backend used for code review.
 	// nil means "use the default" (claude). A non-nil empty string
 	// is treated as invalid.
@@ -36,6 +42,9 @@ const (
 	dirName  = "code-review"
 	// DefaultProvider is used when the user has not picked one.
 	DefaultProvider = "claude"
+	// DefaultComment is written into the JSON file the first time it
+	// is created so the user immediately sees which values are valid.
+	DefaultComment = "provider — selects the LLM used for reviews (claude or codex). Run 'code-review config get provider' to see the current value."
 )
 
 // Store reads and writes the config file. Safe for concurrent use.
@@ -80,7 +89,8 @@ func (s *Store) Path() string {
 }
 
 // Load reads the config file. If the file does not exist it returns
-// the zero Config — that is the desired outcome for a fresh install.
+// a Config pre-populated with the default comment so the next Save
+// bootstraps the on-disk file with helpful documentation.
 func (s *Store) Load() (Config, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -88,7 +98,7 @@ func (s *Store) Load() (Config, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return Config{}, nil
+			return Config{Comment: DefaultComment}, nil
 		}
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
@@ -150,7 +160,10 @@ func (s *Store) GetProvider() (string, error) {
 	return *c.Provider, nil
 }
 
-// SetProvider validates and persists the provider name.
+// SetProvider validates and persists the provider name. The default
+// comment is re-applied if the loaded config does not already carry
+// one, so the file keeps its bootstrap annotation across unset/set
+// cycles.
 func (s *Store) SetProvider(name string) error {
 	if name == "" {
 		return helpers.ErrInvalidConfigValue
@@ -159,17 +172,23 @@ func (s *Store) SetProvider(name string) error {
 	if err != nil {
 		return err
 	}
+	if c.Comment == "" {
+		c.Comment = DefaultComment
+	}
 	c.Provider = &name
 	return s.Save(c)
 }
 
-// UnsetProvider clears the persisted provider so the default takes over.
+// UnsetProvider reverts the file to the freshly-installed state:
+// provider cleared AND the bootstrap comment removed so the user
+// sees an empty Config on disk until the next save repopulates it.
 func (s *Store) UnsetProvider() error {
 	c, err := s.Load()
 	if err != nil {
 		return err
 	}
 	c.Provider = nil
+	c.Comment = ""
 	return s.Save(c)
 }
 
