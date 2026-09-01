@@ -6,17 +6,22 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// PRHeader renders the small box that summarises the pull request under
-// review. The structure is:
+// PRHeader renders the small rounded box that summarises the pull
+// request under review. The structure is:
 //
-//	┌────────────────────────────────────────────────────┐
-//	│ [OPEN]  Title of the pull request                  │
-//	│ #5298 @author from head/branch to base/branch      │
-//	└────────────────────────────────────────────────────┘
+//	╭──────────────────────────────────────────────────────╮
+//	│ [OPEN]  Title of the pull request                    │
+//	│ #5298 @author from head/branch to base/branch        │
+//	╰──────────────────────────────────────────────────────╯
 //
-// Static elements (borders, label literals, separators) render in the
-// foreground colour. Variable values (number, title, author, branches)
-// render in the muted colour so the eye locks onto the data.
+// Colour rules:
+//   - borders, label literals ([, ], #, @, from, to) → foreground (white).
+//   - title → foreground (white). The title reads as the heading, not data.
+//   - number → muted (grey). It is data, not structure.
+//   - branches (head/base) → muted + underlined. They are data and
+//     benefit from the visual cue that they look like identifiers.
+//   - status badge → semantic colour (green OPEN, purple MERGED,
+//     red CLOSED, amber DRAFT).
 type PRHeader struct {
 	Number      int
 	Title       string
@@ -30,8 +35,9 @@ type PRHeader struct {
 // Render returns the formatted box as a single string with a trailing
 // newline so the next prompt or log line starts on a fresh row.
 func (h PRHeader) Render() string {
-	borderStyle := lipgloss.NewStyle().Foreground(Default.Fg)
 	mutedStyle := MutedStyle
+	mutedUnderlineStyle := MutedStyle.Underline(true)
+	fgStyle := lipgloss.NewStyle().Foreground(Default.Fg)
 	badgeStyle := badgeStyleFor(h.State, h.IsDraft)
 
 	title := h.Title
@@ -39,18 +45,18 @@ func (h PRHeader) Render() string {
 		title = "(no title)"
 	}
 
-	line1 := borderStyle.Render("[") +
+	line1 := fgStyle.Render("[") +
 		badgeStyle.Render(badgeLabel(h.State, h.IsDraft)) +
-		borderStyle.Render("]  ") +
-		mutedStyle.Render(title)
+		fgStyle.Render("]  ") +
+		fgStyle.Render(title)
 
-	line2 := borderStyle.Render("#") + mutedStyle.Render(itoa(h.Number)) +
-		" " + mutedStyle.Render("@"+h.AuthorLogin) +
-		" " + borderStyle.Render("from") + " " + mutedStyle.Render(h.HeadRef) +
-		" " + borderStyle.Render("to") + " " + mutedStyle.Render(h.BaseRef)
+	line2 := fgStyle.Render("#") + mutedStyle.Render(itoa(h.Number)) +
+		" " + fgStyle.Render("@") + mutedStyle.Render(h.AuthorLogin) +
+		" " + fgStyle.Render("from") + " " + mutedUnderlineStyle.Render(h.HeadRef) +
+		" " + fgStyle.Render("to") + " " + mutedUnderlineStyle.Render(h.BaseRef)
 
 	box := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Default.Fg).
 		Padding(0, 1)
 
