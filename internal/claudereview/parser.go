@@ -16,6 +16,17 @@
 //	  ]
 //	}
 //
+// Every prompt in internal/prompts/ emits this same shape so a single
+// parser can serve the four review categories (resilience, readability,
+// security, testing). The Finding struct carries a few optional fields
+// (OWASP for security; requires_tests / tests_covered / tests_missing /
+// edge_case for testing) that the renderer hides when empty.
+//
+// As a fallback the parser also accepts the literal string "NO_FINDINGS"
+// (after trim + fence stripping) and returns an empty slice. The original
+// prompts allowed that as an alternative to {"findings": []} and we
+// preserve that contract so the LLM can pick whichever it produces.
+//
 // An empty findings array renders as a success indicator by the caller.
 package claudereview
 
@@ -35,18 +46,48 @@ var (
 	ErrMalformedFinding  = errors.New("claude response had a finding with no `file` or `title`")
 )
 
-// Finding is one resilience observation emitted by claude. Fields are
+// Category constants for the four supported review types. They mirror
+// the `category` field the prompts emit and are exposed so callers and
+// tests can refer to them without string literals scattered around.
+const (
+	CategoryResilience      = "RESILIENCE"
+	CategoryReadability     = "READABILITY"
+	CategorySecurity        = "SECURITY"
+	CategoryTesting         = "TESTING"
+	CategoryDefaultFallback = CategoryResilience // when the LLM omits the field
+)
+
+// Finding is one review observation emitted by claude. Fields are
 // exported so the renderer can address them by name without coupling
 // to the wire format.
+//
+// The OWASP/RequiresTests/TestsCovered/TestsMissing/EdgeCase fields are
+// category-specific: they are populated only for SECURITY and TESTING
+// findings respectively. They use omitempty so the JSON payload stays
+// minimal for the two categories that do not need them.
 type Finding struct {
-	Title       string    `json:"title"`
-	Context     string    `json:"context"`
-	Impact      []string  `json:"impact"`
-	Suggestion  string    `json:"suggestion"`
-	Category    string    `json:"category"`
-	File        string    `json:"file"`
-	Line        int       `json:"line"`
-	Snippets    []Snippet `json:"snippets"`
+	Title      string    `json:"title"`
+	Context    string    `json:"context"`
+	Impact     []string  `json:"impact"`
+	Suggestion string    `json:"suggestion"`
+	Category   string    `json:"category"`
+	File       string    `json:"file"`
+	Line       int       `json:"line"`
+	Snippets   []Snippet `json:"snippets"`
+
+	// SECURITY-only: the OWASP API Security Top 10 category, e.g.
+	// "API1:2023". Optional so resilience/readability/testing findings
+	// stay clean.
+	OWASP string `json:"owasp,omitempty"`
+
+	// TESTING-only fields. RequiresTests is a *bool so we can tell
+	// "the LLM did not emit it" apart from "the LLM emitted false".
+	// The other three are free-text descriptions rendered as
+	// additional lines under the Impact block.
+	RequiresTests *bool  `json:"requires_tests,omitempty"`
+	TestsCovered  string `json:"tests_covered,omitempty"`
+	TestsMissing  string `json:"tests_missing,omitempty"`
+	EdgeCase      string `json:"edge_case,omitempty"`
 }
 
 // Snippet is one block of source code that illustrates a finding.
@@ -64,10 +105,18 @@ type envelope struct {
 	Findings []Finding `json:"findings"`
 }
 
+// noFindingsLiteral is the alternative empty-response shape the prompts
+// accept. We keep it as a constant so the parser is easy to audit.
+const noFindingsLiteral = "NO_FINDINGS"
+
 // Parse converts the raw claude response into a list of Finding.
 // Returns ErrMalformedResponse if the payload is not JSON,
 // ErrNoFindingsField if the JSON is valid but missing the findings
 // key, and ErrMalformedFinding if any finding lacks required fields.
+//
+// A response that is exactly the literal "NO_FINDINGS" (after trim and
+// fence stripping) returns an empty slice with no error. This matches
+// the contract written into the prompts.
 func Parse(response string) ([]Finding, error) {
 	response = strings.TrimSpace(response)
 	if response == "" {
@@ -77,6 +126,14 @@ func Parse(response string) ([]Finding, error) {
 	// Some claude runs wrap the JSON in markdown fences despite the
 	// prompt telling it not to. Strip them defensively before parsing.
 	response = stripCodeFences(response)
+
+	// Honour the literal "NO_FINDINGS" shortcut the prompts allow.
+	// It is case-sensitive on purpose so accidental matches (e.g.
+	// text containing "no_findings" inside a sentence) do not slip
+	// through.
+	if response == noFindingsLiteral {
+		return []Finding{}, nil
+	}
 
 	var env envelope
 	if err := json.Unmarshal([]byte(response), &env); err != nil {
@@ -96,18 +153,20 @@ func Parse(response string) ([]Finding, error) {
 	return env.Findings, nil
 }
 
-// normaliseFinding trims whitespace and fills defaults for fields
-// that claude occasionally omits. Doing it here keeps the renderer
-// free of nil checks.
+// normaliseFinding trims whitespace, fills defaults for fields that
+// claude occasionally omits, and validates category-specific rules.
+// Doing it here keeps the renderer free of nil checks and centralises
+// every "if the LLM forgot this, default to X" decision in one place.
 func normaliseFinding(f Finding) Finding {
 	f.Title = strings.TrimSpace(f.Title)
 	f.Context = strings.TrimSpace(f.Context)
 	f.Suggestion = strings.TrimSpace(f.Suggestion)
 	f.File = strings.TrimSpace(f.File)
-	f.Category = strings.TrimSpace(f.Category)
-	if f.Category == "" {
-		f.Category = "RESILIENCE"
-	}
+	f.Category = normaliseCategory(f.Category)
+	f.OWASP = strings.TrimSpace(f.OWASP)
+	f.TestsCovered = strings.TrimSpace(f.TestsCovered)
+	f.TestsMissing = strings.TrimSpace(f.TestsMissing)
+	f.EdgeCase = strings.TrimSpace(f.EdgeCase)
 
 	for i, item := range f.Impact {
 		f.Impact[i] = strings.TrimSpace(item)
@@ -115,7 +174,31 @@ func normaliseFinding(f Finding) Finding {
 	for i, s := range f.Snippets {
 		f.Snippets[i].Code = strings.TrimSpace(s.Code)
 	}
+
+	// SECURITY findings without an OWASP category are not actionable —
+	// the whole point of that category is to map to the OWASP API
+	// Top 10. We default to "API0:2023" (a sentinel that means
+	// "unspecified") so the renderer can flag it visibly rather than
+	// silently drop the finding.
+	if f.Category == CategorySecurity && f.OWASP == "" {
+		f.OWASP = "API0:2023"
+	}
+
 	return f
+}
+
+// normaliseCategory uppercases the incoming string and falls back to
+// the default category when the LLM emitted something we don't
+// recognise. Returning a known value keeps the renderer's switch
+// exhaustive without forcing it to handle every typo the model can
+// invent.
+func normaliseCategory(raw string) string {
+	c := strings.ToUpper(strings.TrimSpace(raw))
+	switch c {
+	case CategoryResilience, CategoryReadability, CategorySecurity, CategoryTesting:
+		return c
+	}
+	return CategoryDefaultFallback
 }
 
 // stripCodeFences removes leading/trailing markdown code fences

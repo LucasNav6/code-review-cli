@@ -48,6 +48,6 @@ var (
 	ErrConfigNotFound     = errors.New("configuration key not set")
 
 	// claude response.
-	ErrEmptyResponse      = errors.New("claude returned an empty response")
-	ErrMalformedResponse  = errors.New("claude response was not valid JSON")
+	ErrEmptyResponse     = errors.New("claude returned an empty response")
+	ErrMalformedResponse = errors.New("claude response was not valid JSON")
 )
