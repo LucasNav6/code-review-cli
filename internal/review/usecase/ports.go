@@ -38,10 +38,12 @@ type SCM interface {
 // again later (e.g. to feed multiple LLM invocations without
 // re-fetching). The concrete implementation is provided by the
 // composition root (today: a FileStore under the OS cache dir).
-type DiffStore interface {
-	Save(d scmdomain.Diff) error
-	Load() (scmdomain.Diff, error)
-}
+//
+// Re-exported from internal/scm/domain so callers do not have to
+// import the scm package separately when wiring the use case.
+// The use case itself does not call any method on it — it just
+// holds the value and passes it through to Execute.
+type DiffStore = scmdomain.DiffStore
 
 // LLMProviderResolver turns a provider name into a concrete
 // llmdomain.Provider. The use case calls this once per --provider

@@ -32,7 +32,7 @@ Use "code-review config" to choose the LLM provider.`,
 			case versionFlag:
 				return version.Print(cmd.OutOrStdout(), ui.MutedStyle)
 			default:
-				return runReviewCommand(cmd)
+				return runReview(cmd, nil)
 			}
 	},
 }
