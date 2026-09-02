@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/LucasNav6/code-review-cli/helpers"
-	"github.com/LucasNav6/code-review-cli/internal/loading"
 	"github.com/LucasNav6/code-review-cli/internal/logging"
 	"github.com/LucasNav6/code-review-cli/internal/llm/resolver"
 	"github.com/LucasNav6/code-review-cli/internal/prompts/adapters/fs"
@@ -68,12 +67,17 @@ Examples:
 // branch on success/failure paths beyond mapping the returned
 // error to the right logging ErrorType + exit code.
 //
-// Why a top-level spinner around the whole call? The legacy
-// implementation animated one spinner per pipeline step. That
-// was noisy when --type all ran four categories, so the new use
-// case handles per-category progress internally (via Notifier if
-// it ever grows one) and the cmd shows ONE spinner for the
-// entire run.
+// Why no top-level spinner around the whole call? The earlier
+// H6 implementation wrapped Execute in loading.Run, which wrote
+// the spinner message to stderr with '\r' carriage returns while
+// the sink wrote the header box to stdout. When the user
+// redirected 2>&1 (or any TTY merge) the two streams interleaved:
+// the spinner line stayed on screen overlapping the header. The
+// use case already prints the header box + per-category blocks
+// in sequence, which is progress enough for the user. If a
+// future usecase change wants per-step progress, the right shape
+// is a Spinner port the use case drives via the Notifier — not
+// a cmd-level loading.Run wrapper.
 func runReview(cmd *cobra.Command, _ []string) error {
 	url, err := cmd.Flags().GetString("url")
 	if err != nil {
@@ -93,19 +97,12 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	uc := usecase.New(scmClient, store, resolver.New(), loader, sink, notifier)
 
-	var execErr error
-	if err := loading.Run(os.Stderr, "Reviewing pull request", func() error {
-		execErr = uc.Execute(cmd.Context(), usecase.ReviewPRInput{
-			URL:             url,
-			ReviewType:      domain.ReviewType(reviewTypeFlag),
-			ProviderOverride: providerFlag,
-		})
-		return execErr
+	if err := uc.Execute(cmd.Context(), usecase.ReviewPRInput{
+		URL:             url,
+		ReviewType:      domain.ReviewType(reviewTypeFlag),
+		ProviderOverride: providerFlag,
 	}); err != nil {
-		return err
-	}
-	if execErr != nil {
-		return mapReviewError(execErr)
+		return mapReviewError(err)
 	}
 	return nil
 }
