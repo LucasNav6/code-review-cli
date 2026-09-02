@@ -37,18 +37,3 @@ type DiffStore interface {
 	// (corruption, permission change, etc.).
 	Load() (Diff, error)
 }
-
-// DiscardDiffStore is a no-op DiffStore useful for tests and for
-// callers that do not want to persist the diff (e.g. a dry-run
-// mode). Save returns nil, Load returns ErrNoStoredDiff.
-type DiscardDiffStore struct{}
-
-// Save discards the diff. Returns nil unconditionally.
-func (DiscardDiffStore) Save(Diff) error { return nil }
-
-// Load always returns ErrNoStoredDiff.
-func (DiscardDiffStore) Load() (Diff, error) { return Diff{}, ErrNoStoredDiff }
-
-// Compile-time check: DiscardDiffStore satisfies the DiffStore
-// interface. Catches signature drift at build time.
-var _ DiffStore = DiscardDiffStore{}

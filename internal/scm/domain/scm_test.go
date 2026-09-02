@@ -69,19 +69,7 @@ func TestPRURL_String(t *testing.T) {
 	}
 }
 
-// TestDiscardDiffStore satisfies the contract that
-// DiscardDiffStore returns ErrNoStoredDiff from Load and nil from
-// Save. Useful as a smoke test for the test fake that downstream
-// packages will rely on.
-func TestDiscardDiffStore(t *testing.T) {
-	var store domain.DiffStore = domain.DiscardDiffStore{}
-
-	if err := store.Save(domain.Diff{Body: []byte("+ foo := 1")}); err != nil {
-		t.Fatalf("Save must return nil, got %v", err)
-	}
-
-	_, err := store.Load()
-	if !errors.Is(err, domain.ErrNoStoredDiff) {
-		t.Fatalf("Load must return ErrNoStoredDiff, got %v", err)
-	}
-}
+// (DiscardDiffStore used to live here as a no-op DiffStore. Deleted:
+// it was not imported by any production package and its only use was
+// its own test. The use case already has fakes_test.go with a richer
+// fakeStore implementation.)

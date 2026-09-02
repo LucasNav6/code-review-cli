@@ -51,9 +51,12 @@ Examples:
 		"LLM provider to use (claude, codex) — overrides the saved config")
 
 	// --type selects which review category to run. The default is
-	// "all" so a plain `code-review review` invocation runs the
-	// four canonical categories sequentially.
-	cmd.Flags().StringVar(&reviewTypeFlag, "type", string(domain.ReviewTypeAll),
+	// domain.DefaultReviewType (= ReviewTypeAll) so a plain
+	// `code-review review` invocation runs the four canonical
+	// categories sequentially. Using the domain constant (not the
+	// literal "all") keeps the cmd in sync if the default ever
+	// changes.
+	cmd.Flags().StringVar(&reviewTypeFlag, "type", string(domain.DefaultReviewType),
 		"Review category to run (resilience, maintainability, security, testing, all)")
 
 	return cmd

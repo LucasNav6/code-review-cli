@@ -32,12 +32,4 @@ var (
 	// documented "use the default" case and never produces this
 	// error.
 	ErrUnknownReviewType = errors.New("unknown review type")
-
-	// ErrUnknownPromptFile is returned by Category.FromPromptFile
-	// when the bare filename does not match any known prompt. It is
-	// exported so callers can distinguish "we don't know how to
-	// route this prompt" from "the prompt file is missing on disk".
-	// The latter is a filesystem concern and lives in the loader
-	// adapter.
-	ErrUnknownPromptFile = errors.New("unknown prompt file")
 )

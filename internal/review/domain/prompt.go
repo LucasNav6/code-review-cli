@@ -1,7 +1,5 @@
 package domain
 
-import "strings"
-
 // PromptDir is the directory (relative to the process working
 // directory) where the bundled prompt templates live. Each
 // `<category>.md` file is loaded at run time and substituted with the
@@ -56,25 +54,4 @@ func PromptForCategory(c Category) PromptFile {
 	// Unknown category → resilience fallback. The renderer also
 	// normalises unknown categories, so the two layers agree.
 	return PromptResilience
-}
-
-// CategoryFromPromptFile resolves a bare filename back to its
-// canonical Category. Used by the renderer / loader pipeline when a
-// pass was identified by its prompt file rather than by category.
-//
-// Returns ErrUnknownPromptFile when the filename does not match any
-// known prompt. Callers can decide to fall back to resilience or to
-// surface the error — the domain deliberately does not choose.
-func CategoryFromPromptFile(p PromptFile) (Category, error) {
-	switch strings.ToLower(strings.TrimSpace(string(p))) {
-	case string(PromptResilience):
-		return CategoryResilience, nil
-	case string(PromptMaintainability):
-		return CategoryMaintainability, nil
-	case string(PromptSecurity):
-		return CategorySecurity, nil
-	case string(PromptTesting):
-		return CategoryTesting, nil
-	}
-	return "", ErrUnknownPromptFile
 }

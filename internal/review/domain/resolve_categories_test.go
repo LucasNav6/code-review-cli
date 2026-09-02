@@ -160,45 +160,6 @@ func TestPromptForCategory(t *testing.T) {
 	}
 }
 
-// TestCategoryFromPromptFile is the inverse mapping test. Together
-// with TestPromptForCategory it pins down that the two functions
-// never drift — that was a real bug risk in the original cmd code.
-func TestCategoryFromPromptFile(t *testing.T) {
-	cases := []struct {
-		file domain.PromptFile
-		want domain.Category
-	}{
-		{domain.PromptResilience, domain.CategoryResilience},
-		{domain.PromptMaintainability, domain.CategoryMaintainability},
-		{domain.PromptSecurity, domain.CategorySecurity},
-		{domain.PromptTesting, domain.CategoryTesting},
-		{"RESILIENCE.MD", domain.CategoryResilience}, // case-insensitive
-		{"  resilience.md  ", domain.CategoryResilience}, // whitespace tolerant
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.file), func(t *testing.T) {
-			got, err := domain.CategoryFromPromptFile(tc.file)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("CategoryFromPromptFile(%q): got %q, want %q",
-					tc.file, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestCategoryFromPromptFile_Unknown asserts that an unrecognised
-// filename returns ErrUnknownPromptFile (and an empty Category) so
-// the caller can decide whether to fail or fall back.
-func TestCategoryFromPromptFile_Unknown(t *testing.T) {
-	_, err := domain.CategoryFromPromptFile("nope.md")
-	if !errors.Is(err, domain.ErrUnknownPromptFile) {
-		t.Fatalf("expected ErrUnknownPromptFile, got %v", err)
-	}
-}
-
 // TestPromptFilePath ensures PromptFile.Path() always returns a path
 // inside PromptDir. This is the contract the loader adapter relies
 // on.
