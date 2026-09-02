@@ -10,6 +10,35 @@ CLI que revisa Pull Requests de GitHub, organizada en etapas independientes:
 
 Muestra el progreso de cada etapa en una interfaz interactiva de terminal y deja los hallazgos de cada una en un archivo Markdown en el directorio actual.
 
+## Tipos de revisión
+
+El LLM revisa el diff con cuatro lentes distintos. Cada uno corre con
+un prompt propio (`internal/prompts/<tipo>.md`) y devuelve hallazgos
+en una categoría (`RESILIENCE`, `READABILITY`, `SECURITY` o `TESTING`).
+El parser y el renderer son compartidos: lo único que cambia es el
+prompt y los campos extra que cada categoría muestra.
+
+**Por defecto se corren los cuatro**, en este orden: resilience →
+maintainability → security → testing. Cada uno con su propio spinner
+y su propio bloque de hallazgos, identificados por el header
+`─── Claude review (<categoría>) ───`. Si uno de los cuatro falla, los
+otros siguen — el flujo no se aborta.
+
+| `--type`            | Categoría   | Busca                                                             | Campos extra                     |
+| ------------------- | ----------- | ----------------------------------------------------------------- | -------------------------------- |
+| `resilience`        | `RESILIENCE`| Manejo de fallos, retries, timeouts, observabilidad                | —                                |
+| `maintainability`   | `READABILITY`| Números mágicos, complejidad, duplicación, nombres              | —                                |
+| `security`          | `SECURITY`  | OWASP API Top 10 (BOLA, BFLA, SSRF, misconfig, etc.)             | `owasp` (ej. `API1:2023`)        |
+| `testing`           | `TESTING`   | Cobertura de tests, casos borde, regresiones                     | `requires_tests`, `tests_covered`, `tests_missing`, `edge_case` |
+| `all` (def.)        | las cuatro  | Lo mismo que las cuatro anteriores, en orden                      | según corresponda                |
+
+```sh
+code-review --url https://github.com/org/repo/pull/123                # default: las cuatro categorías
+code-review --url <pr> --type security                                # solo OWASP (más rápido, menos tokens)
+code-review --url <pr> --type testing                                 # solo cobertura + casos borde
+code-review --url <pr> --type all                                     # explícito: los cuatro en orden
+```
+
 ## Requisitos
 
 - [`gh`](https://cli.github.com) (GitHub CLI), autenticado con `gh auth login`.
@@ -52,6 +81,12 @@ code-review --version
 
 # Actualizar a la última versión publicada
 code-review upgrade
+
+# Bajar a una versión específica
+code-review downgrade --to v1.0.0
+
+# Desinstalar el binario
+code-review uninstall
 ```
 
 ### Controles de la interfaz
@@ -66,11 +101,52 @@ code-review upgrade
 
 ## Actualizaciones
 
-`code-review` chequea (con una caché de 24hs) si hay una versión más nueva publicada y, si la hay, muestra un aviso al terminar una revisión. Para actualizar:
+La CLI trae tres comandos para mantener el binario bajo control. Los
+tres hablan contra las [GitHub Releases][releases] del repo y funcionan
+tanto si instalaste con el script oficial como con `go install`.
+
+### `code-review upgrade`
+
+Baja la última release estable publicada y reemplaza el binario actual
+en disco. Antes de tocar el filesystem pide confirmación (salteable con
+`-y`). Si ya estás en la última versión, sale con un mensaje y exit 0.
 
 ```sh
-code-review upgrade
+code-review upgrade          # pregunta antes de pisar
+code-review upgrade -y       # upgrade silencioso para scripts/CI
+code-review upgrade --help
 ```
+
+`update` queda como alias por compatibilidad hacia atrás.
+
+### `code-review downgrade --to <version>`
+
+Baja una release específica y reemplaza el binario actual. **Requiere
+que la versión target sea estrictamente menor** que la que está corriendo
+— si pedís `--to v2.0.0` desde `v1.5.0` el comando rechaza la operación
+con un mensaje claro en vez de hacer un "upgrade disfrazado".
+
+```sh
+code-review downgrade --to v1.0.0
+code-review downgrade --to v1.2.3
+```
+
+### `code-review uninstall`
+
+Detecta cómo se instaló el binario y lo borra cuando es seguro:
+
+| Instalado en              | Qué hace                                                |
+| ------------------------- | ------------------------------------------------------- |
+| `~/.local/bin/code-review`| Borra el archivo en disco.                              |
+| `$GOBIN` / `$GOPATH/bin`  | Borra el archivo en disco.                              |
+| Homebrew cellar           | Imprime `brew uninstall code-review` y no toca nada.    |
+| Cualquier otro lugar      | Imprime la instrucción manual y no toca nada.           |
+
+Pide confirmación antes de borrar (salteable con `-y`). Self-update y
+uninstall **no funcionan en Windows** — la estrategia de rename
+atómico no aplica sobre un binario en ejecución.
+
+[releases]: https://github.com/LucasNav6/code-review-cli/releases
 
 ## Desarrollo
 

@@ -58,7 +58,8 @@ func (h PRHeader) Render() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Default.Fg).
-		Padding(0, 1)
+		Padding(0, 1).
+		Width(TerminalWidth())
 
 	body := line1 + "\n" + line2
 	return box.Render(body) + "\n"
