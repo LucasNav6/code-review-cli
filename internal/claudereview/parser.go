@@ -61,16 +61,26 @@ const (
 // exported so the renderer can address them by name without coupling
 // to the wire format.
 //
-// The OWASP/RequiresTests/TestsCovered/TestsMissing/EdgeCase fields are
-// category-specific: they are populated only for SECURITY and TESTING
-// findings respectively. They use omitempty so the JSON payload stays
-// minimal for the two categories that do not need them.
+// The OWASP/RequiresTests/TestsCovered/TestsMissing/EdgeCase fields
+// are category-specific: they are populated only for SECURITY and
+// TESTING findings respectively. The SBOM* fields are populated
+// only for SECURITY:SBOM findings (CVE-driven review). They use
+// omitempty so the JSON payload stays minimal for categories that
+// do not need them — the existing prompts (security, resilience,
+// etc.) are NOT modified by adding these fields.
 type Finding struct {
 	Title      string    `json:"title"`
 	Context    string    `json:"context"`
 	Impact     []string  `json:"impact"`
 	Suggestion string    `json:"suggestion"`
 	Category   string    `json:"category"`
+	// Subcategory is the optional child bucket when the LLM
+	// emits a compound category like "SECURITY:SBOM". Extracted
+	// from Category at parse time so the renderer can group by
+	// sub-category without re-parsing. Empty for plain
+	// categories (resilience, maintainability, security,
+	// testing).
+	Subcategory string    `json:"subcategory,omitempty"`
 	File       string    `json:"file"`
 	Line       int       `json:"line"`
 	Snippets   []Snippet `json:"snippets"`
@@ -79,6 +89,17 @@ type Finding struct {
 	// "API1:2023". Optional so resilience/readability/testing findings
 	// stay clean.
 	OWASP string `json:"owasp,omitempty"`
+
+	// SECURITY:SBOM-only fields. Populated when the LLM is
+	// reviewing a CVE/vulnerability finding. All omitempty so
+	// existing prompts (security, resilience, etc.) parse
+	// unchanged.
+	CVE          string  `json:"cve,omitempty"`           // e.g. "CVE-2024-12345"
+	CVSS         float64 `json:"cvss,omitempty"`          // numeric score 0–10
+	Component    string  `json:"component,omitempty"`      // affected package name
+	ComponentVersion string `json:"component_version,omitempty"` // installed version
+	FixedVersion string  `json:"fixed_version,omitempty"` // version that fixes it
+	SeverityLabel string  `json:"severity_label,omitempty"` // CRITICAL/HIGH/MEDIUM/LOW
 
 	// TESTING-only fields. RequiresTests is a *bool so we can tell
 	// "the LLM did not emit it" apart from "the LLM emitted false".
@@ -162,8 +183,17 @@ func normaliseFinding(f Finding) Finding {
 	f.Context = strings.TrimSpace(f.Context)
 	f.Suggestion = strings.TrimSpace(f.Suggestion)
 	f.File = strings.TrimSpace(f.File)
+	// Derive the sub-category BEFORE normalising Category so we
+	// can pull the suffix off the raw string ("SECURITY:SBOM" ->
+	// Category="SECURITY", Subcategory="SBOM").
+	f.Subcategory = subcategoryFromRaw(f.Category)
 	f.Category = normaliseCategory(f.Category)
 	f.OWASP = strings.TrimSpace(f.OWASP)
+	f.CVE = strings.TrimSpace(f.CVE)
+	f.Component = strings.TrimSpace(f.Component)
+	f.ComponentVersion = strings.TrimSpace(f.ComponentVersion)
+	f.FixedVersion = strings.TrimSpace(f.FixedVersion)
+	f.SeverityLabel = strings.TrimSpace(f.SeverityLabel)
 	f.TestsCovered = strings.TrimSpace(f.TestsCovered)
 	f.TestsMissing = strings.TrimSpace(f.TestsMissing)
 	f.EdgeCase = strings.TrimSpace(f.EdgeCase)
@@ -180,7 +210,10 @@ func normaliseFinding(f Finding) Finding {
 	// Top 10. We default to "API0:2023" (a sentinel that means
 	// "unspecified") so the renderer can flag it visibly rather than
 	// silently drop the finding.
-	if f.Category == CategorySecurity && f.OWASP == "" {
+	//
+	// SECURITY:SBOM findings are exempt: their primary identifier
+	// is the CVE, not the OWASP category, so we leave OWASP empty.
+	if f.Category == CategorySecurity && f.Subcategory == "" && f.OWASP == "" {
 		f.OWASP = "API0:2023"
 	}
 
@@ -192,13 +225,45 @@ func normaliseFinding(f Finding) Finding {
 // recognise. Returning a known value keeps the renderer's switch
 // exhaustive without forcing it to handle every typo the model can
 // invent.
+//
+// The LLM may emit sub-categories using the "PARENT:CHILD" form
+// (e.g. "SECURITY:SBOM"). We split on the first ":" so the
+// renderer can group findings by sub-category without losing the
+// parent bucket. The split happens in subcategoryFromRaw (called
+// before this function) so the parent bucket is what reaches this
+// switch.
 func normaliseCategory(raw string) string {
 	c := strings.ToUpper(strings.TrimSpace(raw))
+	if i := strings.Index(c, ":"); i >= 0 {
+		c = c[:i]
+	}
 	switch c {
 	case CategoryResilience, CategoryReadability, CategorySecurity, CategoryTesting:
 		return c
 	}
 	return CategoryDefaultFallback
+}
+
+// subcategoryFromRaw returns the suffix of a compound category
+// string ("SECURITY:SBOM" -> "SBOM"). Known sub-categories today:
+//
+//   - SBOM (only valid under SECURITY).
+//
+// Returns "" if the raw string has no ":" or the suffix is not a
+// known sub-category. We deliberately do NOT validate the parent
+// here — the caller's normaliseCategory handles that.
+func subcategoryFromRaw(raw string) string {
+	c := strings.ToUpper(strings.TrimSpace(raw))
+	i := strings.Index(c, ":")
+	if i < 0 {
+		return ""
+	}
+	suffix := c[i+1:]
+	switch suffix {
+	case "SBOM":
+		return "SBOM"
+	}
+	return ""
 }
 
 // stripCodeFences removes leading/trailing markdown code fences

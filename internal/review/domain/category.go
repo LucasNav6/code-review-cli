@@ -15,6 +15,7 @@ const (
 	CategoryResilience      Category = "RESILIENCE"
 	CategoryMaintainability Category = "READABILITY"
 	CategorySecurity        Category = "SECURITY"
+	CategorySecuritySBOM    Category = "SECURITY:SBOM"
 	CategoryTesting         Category = "TESTING"
 )
 
@@ -24,18 +25,20 @@ const (
 func (c Category) Canonical() Category {
 	upper := Category(strings.ToUpper(string(c)))
 	switch upper {
-	case CategoryResilience, CategoryMaintainability, CategorySecurity, CategoryTesting:
+	case CategoryResilience, CategoryMaintainability, CategorySecurity,
+		CategorySecuritySBOM, CategoryTesting:
 		return upper
 	}
 	return CategoryResilience
 }
 
-// IsKnown reports whether c is one of the four documented categories.
+// IsKnown reports whether c is one of the documented categories.
 // Callers use it to gate UI affordances (e.g. showing the OWASP block
 // only for CategorySecurity).
 func (c Category) IsKnown() bool {
 	switch c {
-	case CategoryResilience, CategoryMaintainability, CategorySecurity, CategoryTesting:
+	case CategoryResilience, CategoryMaintainability, CategorySecurity,
+		CategorySecuritySBOM, CategoryTesting:
 		return true
 	}
 	return false
@@ -51,6 +54,7 @@ const (
 	ReviewTypeResilience     ReviewType = "resilience"
 	ReviewTypeMaintainability ReviewType = "maintainability"
 	ReviewTypeSecurity       ReviewType = "security"
+	ReviewTypeSecuritySBOM   ReviewType = "security-sbom"
 	ReviewTypeTesting        ReviewType = "testing"
 )
 
@@ -63,6 +67,7 @@ func (t ReviewType) IsKnown() bool {
 		ReviewTypeResilience,
 		ReviewTypeMaintainability,
 		ReviewTypeSecurity,
+		ReviewTypeSecuritySBOM,
 		ReviewTypeTesting:
 		return true
 	}
@@ -114,6 +119,8 @@ func ResolveCategories(t ReviewType) ([]Category, error) {
 		return []Category{CategoryMaintainability}, nil
 	case ReviewTypeSecurity:
 		return []Category{CategorySecurity}, nil
+	case ReviewTypeSecuritySBOM:
+		return []Category{CategorySecuritySBOM}, nil
 	case ReviewTypeTesting:
 		return []Category{CategoryTesting}, nil
 	}

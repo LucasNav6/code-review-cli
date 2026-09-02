@@ -355,3 +355,100 @@ func TestParse_LowercaseCategoryUppercased(t *testing.T) {
 		t.Errorf("expected uppercased category, got %q", got[0].Category)
 	}
 }
+
+// TestParse_SecuritySBOM verifies the SECURITY:SBOM payload preserves
+// every SBOM-specific field (CVE, CVSS, Component, ComponentVersion,
+// FixedVersion, SeverityLabel, Subcategory) and that Category is
+// split into "SECURITY" + Subcategory="SBOM" at parse time.
+//
+// Backward compat: the old SECURITY (OWASP) payload still works
+// unchanged — the new fields are all omitempty and never appear
+// in OWASP-shaped payloads.
+func TestParse_SecuritySBOM(t *testing.T) {
+	input := `{
+		"findings": [{
+			"title": "Dependencia vulnerable con CVE critico",
+			"context": "com.example:lib 1.2.3 tiene una vulnerabilidad que permite RCE.",
+			"impact": [
+				"RCE en el servidor si el endpoint que usa esta lib es reachable."
+			],
+			"suggestion": "Upgrade a 1.2.4 o superior que corrige el CVE.",
+			"category": "SECURITY:SBOM",
+			"file": "go.mod",
+			"line": 0,
+			"cve": "CVE-2024-12345",
+			"cvss": 9.8,
+			"component": "com.example:lib",
+			"component_version": "1.2.3",
+			"fixed_version": "1.2.4",
+			"severity_label": "CRITICAL",
+			"snippets": []
+		}]
+	}`
+
+	got, err := claudereview.Parse(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	f := got[0]
+	if f.Category != claudereview.CategorySecurity {
+		t.Errorf("Category: got %q, want %q", f.Category, claudereview.CategorySecurity)
+	}
+	if f.Subcategory != "SBOM" {
+		t.Errorf("Subcategory: got %q, want SBOM", f.Subcategory)
+	}
+	if f.CVE != "CVE-2024-12345" {
+		t.Errorf("CVE: got %q", f.CVE)
+	}
+	if f.CVSS != 9.8 {
+		t.Errorf("CVSS: got %v, want 9.8", f.CVSS)
+	}
+	if f.Component != "com.example:lib" {
+		t.Errorf("Component: got %q", f.Component)
+	}
+	if f.ComponentVersion != "1.2.3" {
+		t.Errorf("ComponentVersion: got %q", f.ComponentVersion)
+	}
+	if f.FixedVersion != "1.2.4" {
+		t.Errorf("FixedVersion: got %q", f.FixedVersion)
+	}
+	if f.SeverityLabel != "CRITICAL" {
+		t.Errorf("SeverityLabel: got %q", f.SeverityLabel)
+	}
+}
+
+// TestParse_SecuritySBOM_BackwardCompatWithOWASP ensures that a
+// SECURITY (OWASP) payload — which does NOT have the new SBOM
+// fields — still parses cleanly with Subcategory empty. This is the
+// regression guard for the conservative opt-in rollout.
+func TestParse_SecuritySBOM_BackwardCompatWithOWASP(t *testing.T) {
+	input := `{
+		"findings": [{
+			"title": "OWASP finding",
+			"context": "...",
+			"impact": ["..."],
+			"suggestion": "...",
+			"category": "SECURITY",
+			"owasp": "API1:2023",
+			"file": "x.go",
+			"line": 1
+		}]
+	}`
+	got, err := claudereview.Parse(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got[0].Category != claudereview.CategorySecurity {
+		t.Errorf("Category: got %q", got[0].Category)
+	}
+	if got[0].Subcategory != "" {
+		t.Errorf("Subcategory must be empty for plain SECURITY, got %q", got[0].Subcategory)
+	}
+	if got[0].CVE != "" || got[0].CVSS != 0 {
+		t.Errorf("SBOM fields must be empty for plain SECURITY, got CVE=%q CVSS=%v",
+			got[0].CVE, got[0].CVSS)
+	}
+}

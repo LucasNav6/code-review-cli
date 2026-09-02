@@ -22,6 +22,7 @@ const (
 	PromptResilience      PromptFile = "resilience.md"
 	PromptMaintainability PromptFile = "maintainability.md"
 	PromptSecurity        PromptFile = "security.md"
+	PromptSecuritySBOM    PromptFile = "security_sbom.md"
 	PromptTesting         PromptFile = "testing.md"
 )
 
@@ -46,6 +47,8 @@ func PromptForCategory(c Category) PromptFile {
 		return PromptMaintainability
 	case CategorySecurity:
 		return PromptSecurity
+	case CategorySecuritySBOM:
+		return PromptSecuritySBOM
 	case CategoryTesting:
 		return PromptTesting
 	case CategoryResilience:
