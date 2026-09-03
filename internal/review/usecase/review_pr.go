@@ -237,6 +237,12 @@ func needsSBOM(categories []reviewdomain.Category) bool {
 // need to know about the Diff type and so tests can call it with
 // a literal []byte.
 func (uc *ReviewPRUseCase) runOne(ctx context.Context, cat reviewdomain.Category, diffBody []byte, providerOverride, sbom string) {
+	// 6.0. Paint the section header on stdout so the user sees
+	// what category is about to run. Done up-front so the
+	// spinner that follows lives BELOW the header (not in the
+	// same row).
+	uc.sink.StartCategoryHeader(cat)
+
 	// 6.1. Resolve the provider. Use the override if the user
 	// passed --provider; otherwise let the resolver fall back to
 	// the persisted config / default.
@@ -259,12 +265,10 @@ func (uc *ReviewPRUseCase) runOne(ctx context.Context, cat reviewdomain.Category
 		return
 	}
 
-	// 6.3. Substitute the {{DIFF}} placeholder. We do this in
-	// the use case (not the loader) so the loader is a dumb
-	// read-from-disk and the substitution policy is owned by the
-	// caller. The policy here matches what the existing
-	// internal/review.BuildPrompt does: single substitution,
-	// append if the placeholder is missing.
+	// 6.3. Substitute the {{DIFF}} and {{SBOM}} placeholders.
+	// We do this in the use case (not the loader) so the loader
+	// is a dumb read-from-disk and the substitution policy is
+	// owned by the caller.
 	prompt := substituteDiff(templateBody, diffBody)
 	prompt = substituteSBOM(prompt, sbom)
 
@@ -278,7 +282,13 @@ func (uc *ReviewPRUseCase) runOne(ctx context.Context, cat reviewdomain.Category
 		return
 	}
 
-	// 6.5. Run the LLM. Non-fatal so a single broken run does
+	// 6.5. Start the spinner (animates on the sink's stderr).
+	// Stop() is deferred so the spinner always terminates with a
+	// status glyph, even if the LLM panics or the use case aborts.
+	spinner := uc.sink.StartSpinner(fmt.Sprintf("claude reviewing %s…", cat))
+	defer spinner.Stop()
+
+	// 6.6. Run the LLM. Non-fatal so a single broken run does
 	// not block the other categories.
 	response, err := provider.Run(ctx, prompt)
 	if err != nil {
@@ -288,10 +298,11 @@ func (uc *ReviewPRUseCase) runOne(ctx context.Context, cat reviewdomain.Category
 		return
 	}
 
-	// 6.6. Hand the response to the sink. Sink errors are
-	// non-fatal — the use case does not care about formatting
-	// failures.
-	if err := uc.sink.RenderReviewBlock(cat, response); err != nil {
+	// 6.7. Render findings BELOW the spinner row. The sink
+	// parses the LLM JSON and paints one card per finding (or
+	// a green "no findings" card when the list is empty). Sink
+	// errors are non-fatal.
+	if err := uc.sink.RenderFindings(cat, response); err != nil {
 		uc.notifier.Warn(fmt.Sprintf("category %s render failed: %v", cat, err))
 	}
 }

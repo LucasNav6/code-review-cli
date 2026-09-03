@@ -32,7 +32,8 @@ func newReviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "review",
 		Short: "Review a GitHub Pull Request with an LLM",
-		Long: `Fetches a GitHub Pull Request and runs an LLM-powered review across
+		Long: `
+Fetches a GitHub Pull Request and runs an LLM-powered review across
 resilience, maintainability, security and testing categories.
 
 Examples:
@@ -95,7 +96,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	scmClient := gh.New()
 	store := storage.NewFileStore()
 	loader := fs.New()
-	sink := render.NewCLISink(os.Stdout)
+	sink := render.NewCLISink(os.Stdout, os.Stderr)
 	notifier := render.NewCLINotifier(os.Stderr)
 	sbomScanner := osvAdapter.New()
 	repoFetcher := gitAdapter.New()

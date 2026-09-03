@@ -106,12 +106,12 @@ func TestExecute_HappyPath_AllCategories(t *testing.T) {
 		t.Errorf("Header meta: got %+v", sink.HeaderMeta)
 	}
 	// Step 5+6: Four categories were run.
-	if sink.BlockCalls != 4 {
-		t.Errorf("RenderReviewBlock calls: got %d, want 4", sink.BlockCalls)
+	if sink.FindingsCalls != 4 {
+		t.Errorf("RenderFindings calls: got %d, want 4", sink.FindingsCalls)
 	}
 	// All four categories received the LLM response.
 	for _, cat := range reviewdomain.CanonicalOrder() {
-		if _, ok := sink.BlockCallsByCategory[cat]; !ok {
+		if _, ok := sink.FindingsByCategory[cat]; !ok {
 			t.Errorf("category %s was never rendered", cat)
 		}
 	}
@@ -152,10 +152,10 @@ func TestExecute_HappyPath_SingleCategory(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	if sink.BlockCalls != 1 {
-		t.Errorf("expected 1 block, got %d", sink.BlockCalls)
+	if sink.FindingsCalls != 1 {
+		t.Errorf("expected 1 block, got %d", sink.FindingsCalls)
 	}
-	if _, ok := sink.BlockCallsByCategory[reviewdomain.CategoryResilience]; !ok {
+	if _, ok := sink.FindingsByCategory[reviewdomain.CategoryResilience]; !ok {
 		t.Error("resilience block missing")
 	}
 }
@@ -278,8 +278,8 @@ func TestExecute_PerCategoryProviderResolutionFailure_NonFatal(t *testing.T) {
 	if len(notifier.Warnings) != 4 {
 		t.Errorf("expected 4 warnings, got %d: %v", len(notifier.Warnings), notifier.Warnings)
 	}
-	if sink.BlockCalls != 0 {
-		t.Errorf("no block should have been rendered, got %d", sink.BlockCalls)
+	if sink.FindingsCalls != 0 {
+		t.Errorf("no block should have been rendered, got %d", sink.FindingsCalls)
 	}
 }
 
@@ -318,8 +318,8 @@ func TestExecute_PerCategoryLLMFailure_NonFatal(t *testing.T) {
 	if len(notifier.Warnings) != 1 {
 		t.Errorf("expected 1 warning, got %d", len(notifier.Warnings))
 	}
-	if sink.BlockCalls != 0 {
-		t.Errorf("no block should have been rendered, got %d", sink.BlockCalls)
+	if sink.FindingsCalls != 0 {
+		t.Errorf("no block should have been rendered, got %d", sink.FindingsCalls)
 	}
 }
 
@@ -454,8 +454,8 @@ func TestExecute_UnknownReviewTypeFatal(t *testing.T) {
 		t.Errorf("expected ErrUnknownReviewType, got %v", err)
 	}
 	// No blocks should have been rendered.
-	if sink.BlockCalls != 0 {
-		t.Errorf("expected 0 blocks, got %d", sink.BlockCalls)
+	if sink.FindingsCalls != 0 {
+		t.Errorf("expected 0 blocks, got %d", sink.FindingsCalls)
 	}
 }
 

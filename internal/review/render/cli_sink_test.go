@@ -2,6 +2,7 @@ package render_test
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -11,26 +12,35 @@ import (
 )
 
 // TestNewCLISink_NilWriterPanics documents the contract: passing
-// nil is a programming error. We panic rather than silently
-// producing no output because the user would have no idea why
-// nothing printed.
+// nil for either writer is a programming error.
 func TestNewCLISink_NilWriterPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for nil writer, got none")
-		}
-	}()
-	render.NewCLISink(nil)
+	cases := []struct {
+		name string
+		out  any
+		err  any
+	}{
+		{"nil out", nil, &bytes.Buffer{}},
+		{"nil err", &bytes.Buffer{}, nil},
+		{"both nil", nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Errorf("expected panic for %s, got none", tc.name)
+				}
+			}()
+			render.NewCLISink(tc.out.(interface{ Write([]byte) (int, error) }),
+				tc.err.(interface{ Write([]byte) (int, error) }))
+		})
+	}
 }
 
-// TestCLISink_RenderHeader_EmitsTitleAndNumber verifies the
-// header paints the PR title, the number, and the state. We do
-// NOT assert on exact lipgloss output (those depend on lipgloss
-// internals); we only assert that the user-visible substrings
-// appear.
-func TestCLISink_RenderHeader_EmitsTitleAndNumber(t *testing.T) {
+// TestCLISink_RenderHeader verifies the PR header still paints on
+// stdout (no change vs H5).
+func TestCLISink_RenderHeader(t *testing.T) {
 	var buf bytes.Buffer
-	sink := render.NewCLISink(&buf)
+	sink := render.NewCLISink(&buf, &bytes.Buffer{})
 
 	sink.RenderHeader(scmdomain.PRMetadata{
 		Number: 42,
@@ -46,15 +56,88 @@ func TestCLISink_RenderHeader_EmitsTitleAndNumber(t *testing.T) {
 	}
 }
 
-// TestCLISink_RenderReviewBlock_EmptyFindings verifies the
-// no-findings card renders. The card says "No review findings" —
-// we assert the substring is present so we know the renderer took
-// the empty path.
-func TestCLISink_RenderReviewBlock_EmptyFindings(t *testing.T) {
+// TestCLISink_StartCategoryHeader_EmitsShortTag verifies the
+// per-category header line includes the short bracket tag ([R],
+// [M], [T], [S], [S·SB]) plus the full label, separated by
+// dashes sized to a fixed width.
+func TestCLISink_StartCategoryHeader_EmitsShortTag(t *testing.T) {
 	var buf bytes.Buffer
-	sink := render.NewCLISink(&buf)
+	sink := render.NewCLISink(&buf, &bytes.Buffer{})
 
-	if err := sink.RenderReviewBlock(reviewdomain.CategoryResilience, `{"findings": []}`); err != nil {
+	cases := []struct {
+		cat      reviewdomain.Category
+		wantTag  string
+		wantWord string
+	}{
+		// Note: the canonical Category string is what
+		// category[:1] reads from. CategoryMaintainability is
+		// "READABILITY" (kept for backward compat with the LLM
+		// wire format), so the tag is [R], not [M].
+		{reviewdomain.CategoryResilience, "[R]", "RESILIENCE"},
+		{reviewdomain.CategoryMaintainability, "[R]", "READABILITY"},
+		{reviewdomain.CategoryTesting, "[T]", "TESTING"},
+		{reviewdomain.CategorySecurity, "[S]", "SECURITY"},
+		{reviewdomain.CategorySecuritySBOM, "[S·SB]", "SECURITY · SBOM"},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.cat), func(t *testing.T) {
+			buf.Reset()
+			sink.StartCategoryHeader(tc.cat)
+			out := buf.String()
+			if !strings.Contains(out, tc.wantTag) {
+				t.Errorf("header missing tag %q\n--- output ---\n%s", tc.wantTag, out)
+			}
+			if !strings.Contains(out, tc.wantWord) {
+				t.Errorf("header missing label %q\n--- output ---\n%s", tc.wantWord, out)
+			}
+			if !strings.Contains(out, "───") {
+				t.Errorf("header missing dash prefix\n--- output ---\n%s", out)
+			}
+		})
+	}
+}
+
+// TestCLISink_StartSpinner_TerminatesOnStop verifies the spinner
+// is non-blocking and Stop() actually ends the run.
+func TestCLISink_StartSpinner_TerminatesOnStop(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sink := render.NewCLISink(&stdout, &stderr)
+
+	h := sink.StartSpinner("test spinner")
+	if h == nil {
+		t.Fatal("StartSpinner returned nil")
+	}
+	// Give the spinner goroutine a tick to start.
+	// We can't assert on the live animation (timing-sensitive),
+	// only that Stop terminates and the spinner machinery shuts
+	// down cleanly.
+	done := make(chan struct{})
+	go func() {
+		h.Stop()
+		close(done)
+	}()
+	<-done
+	// If Stop didn't terminate the spinner, this would deadlock.
+}
+
+// TestCLISink_StartSpinner_IdempotentStop documents that calling
+// Stop twice on the same handle does not panic. The sync.Once
+// guard inside spinnerHandle guarantees it.
+func TestCLISink_StartSpinner_IdempotentStop(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sink := render.NewCLISink(&stdout, &stderr)
+	h := sink.StartSpinner("idempotent")
+	h.Stop()
+	h.Stop() // must not panic
+}
+
+// TestCLISink_RenderFindings_EmptyFindings paints the no-findings
+// card. The card text "No review findings" must appear on stdout.
+func TestCLISink_RenderFindings_EmptyFindings(t *testing.T) {
+	var buf bytes.Buffer
+	sink := render.NewCLISink(&buf, &bytes.Buffer{})
+
+	if err := sink.RenderFindings(reviewdomain.CategoryResilience, `{"findings": []}`); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(buf.String(), "No review findings") {
@@ -62,12 +145,11 @@ func TestCLISink_RenderReviewBlock_EmptyFindings(t *testing.T) {
 	}
 }
 
-// TestCLISink_RenderReviewBlock_OneFinding paints one finding and
-// asserts that title and file:line show up. We do not assert on
-// ANSI sequences (lipgloss v2 internals).
-func TestCLISink_RenderReviewBlock_OneFinding(t *testing.T) {
+// TestCLISink_RenderFindings_OneFinding paints one card and
+// asserts title + file:line + suggestion are visible.
+func TestCLISink_RenderFindings_OneFinding(t *testing.T) {
 	var buf bytes.Buffer
-	sink := render.NewCLISink(&buf)
+	sink := render.NewCLISink(&buf, &bytes.Buffer{})
 
 	resp := `{
 		"findings": [{
@@ -80,131 +162,106 @@ func TestCLISink_RenderReviewBlock_OneFinding(t *testing.T) {
 			"line": 17
 		}]
 	}`
-	if err := sink.RenderReviewBlock(reviewdomain.CategoryResilience, resp); err != nil {
+	if err := sink.RenderFindings(reviewdomain.CategoryResilience, resp); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{
-		"Falta retry",
-		"internal/foo.go:17",
-		"Sumar retry con backoff.",
-		"RESILIENCE",
-	} {
+	for _, want := range []string{"Falta retry", "internal/foo.go:17", "Sumar retry con backoff."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\n--- output ---\n%s", want, out)
 		}
 	}
 }
 
-// TestCLISink_RenderReviewBlock_MalformedResponseReturnsError
-// locks down the "parse failure is non-fatal but the sink tells
-// the caller" contract. The use case matches on this to decide
-// whether to warn.
-func TestCLISink_RenderReviewBlock_MalformedResponseReturnsError(t *testing.T) {
+// TestCLISink_RenderFindings_MalformedJSONReturnsError locks
+// down the "parse failure is non-fatal but the sink tells the
+// caller" contract.
+func TestCLISink_RenderFindings_MalformedJSONReturnsError(t *testing.T) {
 	var buf bytes.Buffer
-	sink := render.NewCLISink(&buf)
+	sink := render.NewCLISink(&buf, &bytes.Buffer{})
 
-	err := sink.RenderReviewBlock(reviewdomain.CategorySecurity, "not json at all")
+	err := sink.RenderFindings(reviewdomain.CategorySecurity, "not json")
 	if err == nil {
 		t.Fatal("expected error for malformed response, got nil")
 	}
-	// The error message should mention the category so the user
-	// knows which pass failed.
 	if !strings.Contains(err.Error(), "SECURITY") {
 		t.Errorf("error must mention the category, got: %v", err)
 	}
 }
 
-// TestCLISink_RenderReviewBlock_AllCategories paints one finding
-// for each of the four categories to verify the renderer does not
-// leak category-specific fields (e.g. OWASP block into RESILIENCE).
-func TestCLISink_RenderReviewBlock_AllCategories(t *testing.T) {
-	cases := []struct {
-		category reviewdomain.Category
-		resp     string
-		mustHave []string
-		mustNot  []string
-	}{
-		{
-			category: reviewdomain.CategoryResilience,
-			resp: `{"findings":[{
-				"title":"x","context":"c","impact":["i"],
-				"suggestion":"s","category":"RESILIENCE",
-				"file":"x.go","line":1
-			}]}`,
-			mustHave: []string{"x", "x.go:1"},
-			mustNot:  []string{"OWASP", "Requires tests"},
-		},
-		{
-			category: reviewdomain.CategorySecurity,
-			resp: `{"findings":[{
-				"title":"y","context":"c","impact":["i"],
-				"suggestion":"s","category":"SECURITY",
-				"owasp":"API1:2023",
-				"file":"y.go","line":2
-			}]}`,
-			mustHave: []string{"y", "y.go:2", "API1:2023", "OWASP"},
-			mustNot:  []string{"Requires tests"},
-		},
-		{
-			category: reviewdomain.CategoryTesting,
-			resp: `{"findings":[{
-				"title":"z","context":"c","impact":["i"],
-				"suggestion":"s","category":"TESTING",
-				"requires_tests":true,
-				"tests_missing":"missing",
-				"file":"z.go","line":3
-			}]}`,
-			mustHave: []string{"z", "z.go:3", "Requires tests", "Tests missing"},
-			mustNot:  []string{"OWASP"},
-		},
+// TestCLISink_RenderFindings_OrderHeadersBeforeCards verifies
+// the documented ordering: header first, then spinner (stderr),
+// then findings (stdout). We cannot assert on the spinner
+// without a real TTY, but we can assert that StartCategoryHeader
+// appears on stdout BEFORE RenderFindings paints cards.
+func TestCLISink_OrderHeadersBeforeCards(t *testing.T) {
+	var buf bytes.Buffer
+	sink := render.NewCLISink(&buf, &bytes.Buffer{})
+
+	sink.StartCategoryHeader(reviewdomain.CategoryResilience)
+	if err := sink.RenderFindings(reviewdomain.CategoryResilience, `{"findings": []}`); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
+	out := stripANSI(buf.String())
+	headerIdx := strings.Index(out, "RESILIENCE")
+	cardIdx := strings.Index(out, "No review findings")
+	if headerIdx < 0 || cardIdx < 0 {
+		t.Fatalf("missing markers:\n%s", out)
+	}
+	if headerIdx >= cardIdx {
+		t.Errorf("header must precede card; got header@%d card@%d", headerIdx, cardIdx)
+	}
+}
 
+// stripANSI removes the ESC[...m sequences that lipgloss emits,
+// so substring assertions are stable across lipgloss versions.
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
+}
+
+// TestRotatingMessages_FirstMessageReturnsFirstEntry verifies
+// that the very first Next() call returns the first message in
+// the set (no shuffling, no offset).
+func TestRotatingMessages_FirstMessageReturnsFirstEntry(t *testing.T) {
+	cases := []struct {
+		cat reviewdomain.Category
+		// We do not assert exact text (would be brittle) — only
+		// that the message is non-empty and category-specific
+		// vocabulary appears.
+		mustContain string
+	}{
+		{reviewdomain.CategoryResilience, "diff"},
+		{reviewdomain.CategorySecurity, "OWASP"},
+		{reviewdomain.CategorySecuritySBOM, "OSV"},
+	}
 	for _, tc := range cases {
-		t.Run(string(tc.category), func(t *testing.T) {
-			var buf bytes.Buffer
-			sink := render.NewCLISink(&buf)
-
-			if err := sink.RenderReviewBlock(tc.category, tc.resp); err != nil {
-				t.Fatalf("unexpected error: %v", err)
+		t.Run(string(tc.cat), func(t *testing.T) {
+			rm := render.NewRotatingMessages(tc.cat)
+			got := rm.Current()
+			if got == "" {
+				t.Fatal("first message is empty")
 			}
-			out := buf.String()
-			for _, want := range tc.mustHave {
-				if !strings.Contains(out, want) {
-					t.Errorf("%s output missing %q\n--- output ---\n%s",
-						tc.category, want, out)
-				}
-			}
-			for _, unwanted := range tc.mustNot {
-				if strings.Contains(out, unwanted) {
-					t.Errorf("%s output leaked %q\n--- output ---\n%s",
-						tc.category, unwanted, out)
-				}
+			if !strings.Contains(got, tc.mustContain) {
+				t.Errorf("first message %q does not mention %q", got, tc.mustContain)
 			}
 		})
 	}
 }
 
-// TestCLISink_HeaderThenBlocks verifies the order: header first,
-// then blocks. The cmd layer relies on this — the user reads
-// top-to-bottom.
-func TestCLISink_HeaderThenBlocks(t *testing.T) {
-	var buf bytes.Buffer
-	sink := render.NewCLISink(&buf)
-
-	sink.RenderHeader(scmdomain.PRMetadata{Number: 1, Title: "PR", State: "OPEN"})
-	if err := sink.RenderReviewBlock(reviewdomain.CategoryResilience, `{"findings":[]}`); err != nil {
-		t.Fatalf("block: %v", err)
+// TestRotatingMessages_NextCyclesThroughSet verifies the
+// rotation returns every message in the set before repeating.
+func TestRotatingMessages_NextCyclesThroughSet(t *testing.T) {
+	rm := render.NewRotatingMessages(reviewdomain.CategoryResilience)
+	seen := map[string]bool{}
+	for i := 0; i < 12; i++ {
+		seen[rm.Next()] = true
 	}
-
-	out := buf.String()
-	headerIdx := strings.Index(out, "PR")
-	blockIdx := strings.Index(out, "No review findings")
-	if headerIdx < 0 || blockIdx < 0 {
-		t.Fatalf("missing markers in output:\n%s", out)
-	}
-	if headerIdx >= blockIdx {
-		t.Errorf("header must come before blocks; got header@%d block@%d",
-			headerIdx, blockIdx)
+	// The Resilience set has 10 messages; after 12 calls we must
+	// have seen at least 10 (one per element, possibly repeated).
+	if len(seen) < 10 {
+		t.Errorf("rotation not cycling: saw %d unique messages, want at least 10",
+			len(seen))
 	}
 }

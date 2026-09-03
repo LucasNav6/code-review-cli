@@ -85,29 +85,60 @@ type PromptLoader interface {
 }
 
 // OutputSink is the seam between the use case and whatever renders
-// results for the user. The use case calls RenderHeader once and
-// RenderReviewBlock once per category; the sink decides how to
-// paint each block (lipgloss cards today, JSON tomorrow, HTML the
-// day after).
+// results for the user. The use case drives the rendering per
+// category through three methods:
+//
+//   1. StartCategoryHeader: paint the section header (once).
+//   2. StartSpinner: animate a per-category loading line.
+//   3. RenderFindings: paint the parsed findings + success card.
+//
+// The split exists because the spinner animates while the LLM is
+// running, and we want the spinner to live ABOVE the findings on
+// stdout (not interleave with them). StartCategoryHeader paints the
+// header up-front; StartSpinner replaces nothing (it just animates
+// its own row); RenderFindings writes BELOW the spinner row.
 //
 // All methods take an io.Writer-style sink (passed in via the
 // constructor) so the use case does not need to know about
 // stdout/stderr or lipgloss.
 type OutputSink interface {
-	// RenderHeader paints the PR summary box.
+	// RenderHeader paints the PR summary box. Called once at
+	// the start of Execute, before any category runs.
 	RenderHeader(meta scmdomain.PRMetadata)
 
-	// RenderReviewBlock paints one category's review. The raw
-	// response from the LLM is passed in; the sink is responsible
-	// for parsing it into findings and rendering each one. We
-	// keep parsing inside the sink (not the use case) so the use
-	// case does not depend on the LLM response wire format.
+	// StartCategoryHeader paints the section header for one
+	// category pass (e.g. "─── [R] Resilience ───…"). Called
+	// once per category, before StartSpinner.
+	StartCategoryHeader(category reviewdomain.Category)
+
+	// StartSpinner animates a spinner line with msg as the
+	// label. Returns a SpinnerHandle the caller can Stop().
 	//
-	// An error from RenderReviewBlock is non-fatal: the use case
+	// The spinner is rendered on the sink's own writer; the
+	// caller does not need to know whether that is stdout or
+	// stderr (the CLI adapter picks stderr so it does not
+	// interleave with stdout findings).
+	StartSpinner(msg string) SpinnerHandle
+
+	// RenderFindings paints the parsed findings for one
+	// category. The raw response from the LLM is passed in; the
+	// sink parses it into findings and renders each one. Parsing
+	// happens in the sink (not the use case) so the use case
+	// stays decoupled from the LLM wire format.
+	//
+	// An error from RenderFindings is non-fatal: the use case
 	// logs it via the Notifier and continues with the next
-	// category. This matches the documented "categories are
-	// non-blocking" behaviour.
-	RenderReviewBlock(category reviewdomain.Category, response string) error
+	// category.
+	RenderFindings(category reviewdomain.Category, response string) error
+}
+
+// SpinnerHandle represents a live spinner the caller can stop.
+// Calling Stop() terminates the spinner with a status glyph
+// (✔ on success, ✘ on error) followed by the spinner message,
+// replacing the live animation row. Stop is idempotent: calling
+// it twice is safe and the second call is a no-op.
+type SpinnerHandle interface {
+	Stop()
 }
 
 // Notifier is the seam between the use case and whatever handles

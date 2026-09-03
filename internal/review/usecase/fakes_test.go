@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"sync"
 
 	llmdomain "github.com/LucasNav6/code-review-cli/internal/llm/domain"
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
@@ -121,13 +122,17 @@ func (f *fakeLoader) Load(pf reviewdomain.PromptFile, ctx usecase.PromptContext)
 }
 
 // fakeSink implements OutputSink by recording every call.
-// RenderReviewBlock returns RenderErr so failures can be simulated.
+// RenderFindings returns RenderErr so failures can be simulated.
 type fakeSink struct {
-	HeaderCalls        int
-	HeaderMeta         scmdomain.PRMetadata
-	BlockCalls         int
-	BlockCallsByCategory map[reviewdomain.Category]string // cat -> response
-	RenderErr          error
+	HeaderCalls         int
+	HeaderMeta          scmdomain.PRMetadata
+	HeaderCategoryCalls int
+	CategoryHeaders     []reviewdomain.Category
+	FindingsCalls       int
+	FindingsByCategory  map[reviewdomain.Category]string // cat -> response
+	SpinnerStarts       int
+	SpinnerStops        int
+	RenderErr           error
 }
 
 func (f *fakeSink) RenderHeader(meta scmdomain.PRMetadata) {
@@ -135,13 +140,39 @@ func (f *fakeSink) RenderHeader(meta scmdomain.PRMetadata) {
 	f.HeaderMeta = meta
 }
 
-func (f *fakeSink) RenderReviewBlock(cat reviewdomain.Category, response string) error {
-	f.BlockCalls++
-	if f.BlockCallsByCategory == nil {
-		f.BlockCallsByCategory = make(map[reviewdomain.Category]string)
+func (f *fakeSink) StartCategoryHeader(category reviewdomain.Category) {
+	f.HeaderCategoryCalls++
+	f.CategoryHeaders = append(f.CategoryHeaders, category)
+}
+
+func (f *fakeSink) StartSpinner(msg string) usecase.SpinnerHandle {
+	f.SpinnerStarts++
+	return &fakeSpinnerHandle{onStop: func() { f.SpinnerStops++ }}
+}
+
+func (f *fakeSink) RenderFindings(category reviewdomain.Category, response string) error {
+	f.FindingsCalls++
+	if f.FindingsByCategory == nil {
+		f.FindingsByCategory = make(map[reviewdomain.Category]string)
 	}
-	f.BlockCallsByCategory[cat] = response
+	f.FindingsByCategory[category] = response
 	return f.RenderErr
+}
+
+// fakeSpinnerHandle satisfies usecase.SpinnerHandle for tests.
+// Calling Stop records one stop; calling Stop twice is safe (the
+// second call is a no-op via the closed-channel guard below).
+type fakeSpinnerHandle struct {
+	onStop   func()
+	stopOnce sync.Once
+}
+
+func (h *fakeSpinnerHandle) Stop() {
+	h.stopOnce.Do(func() {
+		if h.onStop != nil {
+			h.onStop()
+		}
+	})
 }
 
 // fakeNotifier implements Notifier by capturing every warning.
