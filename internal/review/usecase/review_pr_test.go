@@ -8,6 +8,7 @@ import (
 
 	llmdomain "github.com/LucasNav6/code-review-cli/internal/llm/domain"
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
+	scannersdomain "github.com/LucasNav6/code-review-cli/internal/scanners/domain"
 	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
 	"github.com/LucasNav6/code-review-cli/internal/review/usecase"
 )
@@ -15,6 +16,10 @@ import (
 // newUseCaseUnderTest wires up a ReviewPRUseCase with the supplied
 // fakes. Centralising the wiring here keeps each test focused on
 // what it asserts.
+//
+// scanner and repoFetcher default to nil (no SBOM), keeping the
+// existing test suite focused on the LLM flow. Tests that want
+// SBOM exercise the wiring directly via usecase.New.
 func newUseCaseUnderTest(
 	scm usecase.SCM,
 	store usecase.DiffStore,
@@ -23,7 +28,7 @@ func newUseCaseUnderTest(
 	sink usecase.OutputSink,
 	notifier usecase.Notifier,
 ) *usecase.ReviewPRUseCase {
-	return usecase.New(scm, store, resolver, loader, sink, notifier)
+	return usecase.New(scm, store, resolver, loader, sink, notifier, nil, nil)
 }
 
 // validInput returns a ReviewPRInput that would succeed on a happy
@@ -406,12 +411,12 @@ func TestNew_NilDependencyPanics(t *testing.T) {
 		name string
 		build func()
 	}{
-		{"nil scm", func() { usecase.New(nil, store, resolver, loader, sink, notifier) }},
-		{"nil store", func() { usecase.New(scm, nil, resolver, loader, sink, notifier) }},
-		{"nil resolver", func() { usecase.New(scm, store, nil, loader, sink, notifier) }},
-		{"nil loader", func() { usecase.New(scm, store, resolver, nil, sink, notifier) }},
-		{"nil sink", func() { usecase.New(scm, store, resolver, loader, nil, notifier) }},
-		{"nil notifier", func() { usecase.New(scm, store, resolver, loader, sink, nil) }},
+{"nil scm", func() { usecase.New(nil, store, resolver, loader, sink, notifier, nil, nil) }},
+	{"nil store", func() { usecase.New(scm, nil, resolver, loader, sink, notifier, nil, nil) }},
+	{"nil resolver", func() { usecase.New(scm, store, nil, loader, sink, notifier, nil, nil) }},
+	{"nil loader", func() { usecase.New(scm, store, resolver, nil, sink, notifier, nil, nil) }},
+	{"nil sink", func() { usecase.New(scm, store, resolver, loader, nil, notifier, nil, nil) }},
+	{"nil notifier", func() { usecase.New(scm, store, resolver, loader, sink, nil, nil, nil) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -487,5 +492,180 @@ func TestExecute_ProviderOverridePassedToResolver(t *testing.T) {
 	// The resolver must have been called with "codex".
 	if len(resolver.Calls) == 0 || resolver.Calls[0] != "codex" {
 		t.Errorf("resolver was not called with override: %v", resolver.Calls)
+	}
+}
+
+// fakeScanner implements usecase.SBOMScanner for the SBOM wiring
+// tests below. Returns canned vulnerabilities on demand.
+type fakeScanner struct {
+	Result scannersdomain.VulnerabilityResult
+	Err    error
+	Calls  []string // every repoPath passed to Scan
+}
+
+func (f *fakeScanner) Scan(ctx context.Context, repoPath string) (scannersdomain.VulnerabilityResult, error) {
+	f.Calls = append(f.Calls, repoPath)
+	return f.Result, f.Err
+}
+
+// fakeFetcher implements usecase.RepoFetcher. Returns a stable
+// tmpdir path for assertions; the use case does not use the path
+// except to hand it to the scanner.
+type fakeFetcher struct {
+	Path string
+	Err  error
+	Calls []scmdomain.PRURL
+}
+
+func (f *fakeFetcher) Clone(ctx context.Context, url scmdomain.PRURL) (string, error) {
+	f.Calls = append(f.Calls, url)
+	return f.Path, f.Err
+}
+
+// TestExecute_SBOMWiring_NoSBOMCategory_NoScannerCalls verifies that
+// when the user does NOT request the SBOM category, the scanner is
+// not invoked at all. The use case skips buildSBOMContext entirely
+// when no category needs it.
+func TestExecute_SBOMWiring_NoSBOMCategory_NoScannerCalls(t *testing.T) {
+	scm := &fakeSCM{
+		MetadataResult: scmdomain.PRMetadata{Number: 1},
+		DiffResult:    scmdomain.Diff{Body: []byte("+ x")},
+	}
+	resolver := &fakeResolver{
+		Providers: map[string]llmdomain.Provider{
+			"claude": &fakeProvider{NameVal: "claude", RunResp: "{}"},
+		},
+	}
+	loader := &fakeLoader{
+		Templates: map[reviewdomain.PromptFile]string{
+			reviewdomain.PromptResilience: "R {{DIFF}}",
+		},
+	}
+	scanner := &fakeScanner{}
+	fetcher := &fakeFetcher{Path: "/tmp/repo"}
+
+	uc := usecase.New(scm, &fakeStore{}, resolver, loader, &fakeSink{}, &fakeNotifier{},
+		scanner, fetcher)
+	if err := uc.Execute(context.Background(), usecase.ReviewPRInput{
+		URL:             "https://github.com/owner/repo/pull/1",
+		ReviewType:      reviewdomain.ReviewTypeResilience, // NOT security-sbom
+		ProviderOverride: "claude",
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if len(scanner.Calls) != 0 {
+		t.Errorf("scanner must NOT be called when no SBOM category requested, got %d calls",
+			len(scanner.Calls))
+	}
+	if len(fetcher.Calls) != 0 {
+		t.Errorf("fetcher must NOT be called either, got %d calls", len(fetcher.Calls))
+	}
+}
+
+// TestExecute_SBOMWiring_SBOMCategory_ScansAndSubstitutes verifies
+// the happy path: --type security-sbom triggers a Clone + Scan,
+// the SBOM data flows into the prompt via {{SBOM}}, and the LLM
+// receives the final prompt with both {{DIFF}} and {{SBOM}}
+// substituted.
+func TestExecute_SBOMWiring_SBOMCategory_ScansAndSubstitutes(t *testing.T) {
+	scm := &fakeSCM{
+		MetadataResult: scmdomain.PRMetadata{Number: 1},
+		DiffResult:    scmdomain.Diff{Body: []byte("+ diff line")},
+	}
+	provider := &fakeProvider{NameVal: "claude", RunResp: `{"findings": []}`}
+	resolver := &fakeResolver{
+		Providers: map[string]llmdomain.Provider{"claude": provider},
+	}
+	loader := &fakeLoader{
+		Templates: map[reviewdomain.PromptFile]string{
+			reviewdomain.PromptSecuritySBOM: "DIFF={{DIFF}}\nSBOM={{SBOM}}\n",
+		},
+	}
+	scanner := &fakeScanner{
+		Result: scannersdomain.VulnerabilityResult{
+			RepoPath: "/tmp/repo",
+			Vulnerabilities: []scannersdomain.Vulnerability{{
+				ID:       "CVE-2024-X",
+				CVSSScore: 9.8,
+				Severity:  scannersdomain.SeverityCritical,
+				Component: "com.example:lib",
+				Version:   "1.2.3",
+				FixedVersion: "1.2.4",
+			}},
+		},
+	}
+	fetcher := &fakeFetcher{Path: "/tmp/repo"}
+
+	uc := usecase.New(scm, &fakeStore{}, resolver, loader, &fakeSink{}, &fakeNotifier{},
+		scanner, fetcher)
+	if err := uc.Execute(context.Background(), usecase.ReviewPRInput{
+		URL:             "https://github.com/owner/repo/pull/1",
+		ReviewType:      reviewdomain.ReviewTypeSecuritySBOM,
+		ProviderOverride: "claude",
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Fetcher + scanner were each called exactly once.
+	if len(fetcher.Calls) != 1 {
+		t.Errorf("fetcher calls: got %d, want 1", len(fetcher.Calls))
+	}
+	if len(scanner.Calls) != 1 {
+		t.Errorf("scanner calls: got %d, want 1", len(scanner.Calls))
+	}
+
+	// The prompt handed to the LLM must contain BOTH the diff
+	// body AND the SBOM JSON (proves both substitutions fired).
+	wantParts := []string{"+ diff line", "CVE-2024-X", "com.example:lib"}
+	for _, want := range wantParts {
+		if !strings.Contains(provider.LastPrompt, want) {
+			t.Errorf("prompt missing %q\n--- prompt ---\n%s", want, provider.LastPrompt)
+		}
+	}
+}
+
+// TestExecute_SBOMWiring_ScanFails_NonFatal verifies that a SBOM
+// scan failure does NOT abort the whole review — the category
+// emits a warning and the user gets the rest of the output.
+func TestExecute_SBOMWiring_ScanFails_NonFatal(t *testing.T) {
+	scm := &fakeSCM{
+		MetadataResult: scmdomain.PRMetadata{Number: 1},
+		DiffResult:    scmdomain.Diff{Body: []byte("+ x")},
+	}
+	resolver := &fakeResolver{
+		Providers: map[string]llmdomain.Provider{
+			"claude": &fakeProvider{NameVal: "claude", RunResp: "{}"},
+		},
+	}
+	loader := &fakeLoader{
+		Templates: map[reviewdomain.PromptFile]string{
+			reviewdomain.PromptSecuritySBOM: "template {{DIFF}}",
+		},
+	}
+	scanner := &fakeScanner{Err: errors.New("network down")}
+	fetcher := &fakeFetcher{Path: "/tmp/repo"}
+	notifier := &fakeNotifier{}
+
+	uc := usecase.New(scm, &fakeStore{}, resolver, loader, &fakeSink{}, notifier,
+		scanner, fetcher)
+	err := uc.Execute(context.Background(), usecase.ReviewPRInput{
+		URL:             "https://github.com/owner/repo/pull/1",
+		ReviewType:      reviewdomain.ReviewTypeSecuritySBOM,
+		ProviderOverride: "claude",
+	})
+	if err != nil {
+		t.Fatalf("Execute must NOT fail when SBOM scan fails: %v", err)
+	}
+	// At least one warning must mention the SBOM skip.
+	foundSBOMWarn := false
+	for _, w := range notifier.Warnings {
+		if strings.Contains(w, "SBOM") {
+			foundSBOMWarn = true
+			break
+		}
+	}
+	if !foundSBOMWarn {
+		t.Errorf("expected SBOM warning, got %v", notifier.Warnings)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	llmdomain "github.com/LucasNav6/code-review-cli/internal/llm/domain"
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
 	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
+	"github.com/LucasNav6/code-review-cli/internal/review/usecase"
 )
 
 // All fakes in this file are designed for test use only. They
@@ -100,10 +101,15 @@ type fakeLoader struct {
 	Templates map[reviewdomain.PromptFile]string
 	LoadErr   error
 	Calls     []reviewdomain.PromptFile
+	// LastContext captures the PromptContext from the most recent
+	// Load call. Tests assert on this to verify the use case
+	// passes the right SBOM/Diff values down.
+	LastContext usecase.PromptContext
 }
 
-func (f *fakeLoader) Load(pf reviewdomain.PromptFile) (string, error) {
+func (f *fakeLoader) Load(pf reviewdomain.PromptFile, ctx usecase.PromptContext) (string, error) {
 	f.Calls = append(f.Calls, pf)
+	f.LastContext = ctx
 	if f.LoadErr != nil {
 		return "", f.LoadErr
 	}

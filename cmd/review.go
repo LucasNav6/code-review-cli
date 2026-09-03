@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/LucasNav6/code-review-cli/helpers"
+	gitAdapter "github.com/LucasNav6/code-review-cli/internal/scm/adapters/git"
+	osvAdapter "github.com/LucasNav6/code-review-cli/internal/scanners/adapters/osv"
 	"github.com/LucasNav6/code-review-cli/internal/logging"
 	"github.com/LucasNav6/code-review-cli/internal/llm/resolver"
 	"github.com/LucasNav6/code-review-cli/internal/prompts/adapters/fs"
@@ -86,16 +88,20 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Composition root: wire every concrete adapter the use case
 	// needs. Today: gh CLI for the SCM, the production resolver
-	// for the LLM, a filesystem loader for prompts, and the CLI
-	// sink + notifier for output. Any future adapter swaps happen
-	// here and nowhere else.
+	// for the LLM, a filesystem loader for prompts, the CLI sink
+	// + notifier for output, the OSV-backed SBOM scanner, and the
+	// git-clone-backed RepoFetcher. Any future adapter swaps
+	// happen here and nowhere else.
 	scmClient := gh.New()
 	store := storage.NewFileStore()
 	loader := fs.New()
 	sink := render.NewCLISink(os.Stdout)
 	notifier := render.NewCLINotifier(os.Stderr)
+	sbomScanner := osvAdapter.New()
+	repoFetcher := gitAdapter.New()
 
-	uc := usecase.New(scmClient, store, resolver.New(), loader, sink, notifier)
+	uc := usecase.New(scmClient, store, resolver.New(), loader, sink, notifier,
+		sbomScanner, repoFetcher)
 
 	if err := uc.Execute(cmd.Context(), usecase.ReviewPRInput{
 		URL:             url,

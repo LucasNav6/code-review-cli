@@ -1,7 +1,8 @@
 // Package fs provides the filesystem-backed implementation of the
-// usecase.PromptLoader port. The loader returns the raw template
-// body for a given PromptFile; the use case owns the substitution
-// of {{DIFF}} so the loader is a dumb read-from-disk.
+// usecase.PromptLoader port. The loader is a dumb read-from-disk:
+// it does NOT substitute placeholders. The use case owns the
+// substitution policy so the loader stays free of business logic
+// and a future in-memory loader (for tests) needs no I/O code.
 package fs
 
 import (
@@ -9,6 +10,7 @@ import (
 	"os"
 
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
+	"github.com/LucasNav6/code-review-cli/internal/review/usecase"
 )
 
 // Loader reads prompt templates from the local filesystem. The
@@ -24,19 +26,15 @@ type Loader struct{}
 func New() *Loader { return &Loader{} }
 
 // Load reads the template body for the given prompt file. The
-// prompt's Path() method resolves to "<PromptDir>/<filename>"
-// relative to the cwd. Errors are wrapped so the use case can
-// route them through its own logging facade.
-func (l *Loader) Load(pf reviewdomain.PromptFile) (string, error) {
+// ctx parameter is accepted for port compatibility but unused:
+// the loader is a dumb reader and the use case performs every
+// substitution (including {{DIFF}} and {{SBOM}}). The ctx is kept
+// in the signature so future loaders (HTTP, embedded, …) can
+// inspect it without breaking the contract.
+func (l *Loader) Load(pf reviewdomain.PromptFile, _ usecase.PromptContext) (string, error) {
 	data, err := os.ReadFile(pf.Path())
 	if err != nil {
 		return "", fmt.Errorf("read prompt template %s: %w", pf, err)
 	}
 	return string(data), nil
 }
-
-// Compile-time hint: Loader satisfies usecase.PromptLoader. We do
-// not import usecase here (the dependency would point the wrong
-// way), but every Loader is wired against a usecase.PromptLoader
-// in cmd/review.go. Drift between the two surfaces as a
-// build-time error at the call site.

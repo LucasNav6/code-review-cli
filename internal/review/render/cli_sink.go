@@ -11,6 +11,9 @@ package render
 import (
 	"fmt"
 	"io"
+	"strings"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/LucasNav6/code-review-cli/internal/claudereview"
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
@@ -68,6 +71,10 @@ func (s *CLISink) RenderHeader(meta scmdomain.PRMetadata) {
 // (after trim + fence stripping, see claudereview.Parse) does the
 // same. The category label is used as a section header so the
 // user can tell which block corresponds to which --type pass.
+//
+// Sub-categories (e.g. SECURITY:SBOM) are rendered as a secondary
+// label next to the parent category so the user sees both at a
+// glance: "─── Claude review (SECURITY · SBOM) ───".
 func (s *CLISink) RenderReviewBlock(category reviewdomain.Category, response string) error {
 	findings, err := claudereview.Parse(response)
 	if err != nil {
@@ -86,7 +93,7 @@ func (s *CLISink) RenderReviewBlock(category reviewdomain.Category, response str
 		Accent:     ui.Accent,
 	})
 
-	fmt.Fprintf(s.out, "─── Claude review (%s) ───\n", category)
+	fmt.Fprintf(s.out, "─── Claude review (%s) ───\n", categoryLabel(category))
 
 	if len(findings) == 0 {
 		renderer.RenderNoFindings(s.out)
@@ -99,6 +106,73 @@ func (s *CLISink) RenderReviewBlock(category reviewdomain.Category, response str
 			fmt.Fprintln(s.out)
 		}
 		renderer.Render(s.out, finding)
+		renderSBOMExtras(s.out, finding)
 	}
 	return nil
+}
+
+// categoryLabel renders a Category plus its optional Subcategory
+// into the section header text. SECURITY:SBOM becomes
+// "SECURITY · SBOM". Plain categories render as just "SECURITY".
+//
+// The dot-separator is U+00B7 (MIDDLE DOT), chosen for visual
+// separation without the noise of a slash or a colon.
+func categoryLabel(c reviewdomain.Category) string {
+	// The Category value can be either the parent ("SECURITY") or
+	// the compound form ("SECURITY:SBOM") depending on how the
+	// prompt was written. We normalise by reading the Subcategory
+	// from the parsed Finding field, but RenderReviewBlock is
+	// invoked before the findings are parsed, so we instead sniff
+	// the Category string itself.
+	raw := string(c)
+	if i := strings.Index(raw, ":"); i >= 0 {
+		return raw[:i] + " \u00b7 " + raw[i+1:]
+	}
+	return raw
+}
+
+// renderSBOMExtras paints the SBOM-specific fields of a Finding
+// under the card body when the Finding carries them (CVE, CVSS,
+// Component, ComponentVersion, FixedVersion, SeverityLabel).
+// The function is a no-op when the Finding has none of these
+// fields populated, so it is safe to call for every finding.
+func renderSBOMExtras(w io.Writer, f claudereview.Finding) {
+	if f.CVE == "" && f.Component == "" && f.CVSS == 0 && f.SeverityLabel == "" {
+		return
+	}
+	mutedStyle := ui.MutedStyle
+	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.Accent))
+
+	if f.CVE != "" {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, accentStyle.Render("CVE"))
+		fmt.Fprintln(w, mutedStyle.Render("  "+f.CVE))
+	}
+	if f.Component != "" {
+		version := f.ComponentVersion
+		if version == "" {
+			version = "?"
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, accentStyle.Render("Component"))
+		fmt.Fprintf(w, "%s %s\n", mutedStyle.Render("  "+f.Component+" @"), mutedStyle.Render(version))
+	}
+	if f.SeverityLabel != "" || f.CVSS > 0 {
+		label := f.SeverityLabel
+		if label == "" {
+			label = "UNKNOWN"
+		}
+		score := ""
+		if f.CVSS > 0 {
+			score = fmt.Sprintf(" (CVSS %.1f)", f.CVSS)
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, accentStyle.Render("Severity"))
+		fmt.Fprintf(w, "  %s%s\n", mutedStyle.Render(label), mutedStyle.Render(score))
+	}
+	if f.FixedVersion != "" {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, accentStyle.Render("Fixed in"))
+		fmt.Fprintln(w, mutedStyle.Render("  upgrade to "+f.FixedVersion))
+	}
 }

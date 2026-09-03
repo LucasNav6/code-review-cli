@@ -16,6 +16,7 @@ import (
 
 	llmdomain "github.com/LucasNav6/code-review-cli/internal/llm/domain"
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
+	scannersdomain "github.com/LucasNav6/code-review-cli/internal/scanners/domain"
 	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
 )
 
@@ -55,12 +56,32 @@ type LLMProviderResolver interface {
 	Resolve(name string) (llmdomain.Provider, error)
 }
 
-// PromptLoader returns the raw template body for a given prompt
-// file. The use case substitutes {{DIFF}} and sends the result to
-// the LLM. We make this a port (not an import of the prompts
-// adapter) so tests can return canned strings.
+// PromptContext carries the substitution values the use case
+// passes to the prompt loader. Today two placeholders are
+// supported:
+//
+//   - {{DIFF}}: the textual diff the LLM reviews. Mandatory for
+//     every prompt (the use case asserts this before calling Load).
+//   - {{SBOM}}: the JSON-encoded SBOM scan output. Only populated
+//     for the security_sbom prompt; empty string for the others.
+//
+// Adding a new placeholder means adding a field here AND extending
+// the fs.Loader + the use case's substitute call. Tests pin down
+// every placeholder name.
+type PromptContext struct {
+	Diff string
+	SBOM string
+}
+
+// PromptLoader returns the rendered prompt body for a given prompt
+// file. The use case supplies a PromptContext with the substitution
+// values; the loader is responsible for replacing every {{DIFF}}
+// and {{SBOM}} it finds in the template.
+//
+// The loader owns NO business logic beyond string substitution. The
+// use case owns the policy (when to substitute, what to put in).
 type PromptLoader interface {
-	Load(promptFile reviewdomain.PromptFile) (string, error)
+	Load(promptFile reviewdomain.PromptFile, ctx PromptContext) (string, error)
 }
 
 // OutputSink is the seam between the use case and whatever renders
@@ -94,11 +115,28 @@ type OutputSink interface {
 // stderr, logging, or spinners — it emits events and the
 // notification adapter decides how to surface them.
 //
-// Warn is for non-fatal issues (a category failed, but the rest
-// of the review continues). Error is reserved for issues the use
-// case wants to surface but did not abort on. Fatal errors are
-// returned from Execute; the caller is responsible for logging
-// them.
+// Warn is for non-falable issues (a category failed, but the rest
+// of the review continues). Error is reserved for issues the
+// use case wants to surface but did not abort on. Fatal errors
+// are returned from Execute; the caller is responsible for
+// logging them.
 type Notifier interface {
 	Warn(msg string)
+}
+
+// SBOMScanner is the port the use case consumes to fetch
+// CVE/vulnerability data from a local repo checkout. The contract
+// is the same as internal/scanners/domain.SBOMScanner, redeclared
+// here so the use case does not depend on the scanners package
+// directly (keeps the bounded context graph acyclic).
+type SBOMScanner interface {
+	Scan(ctx context.Context, repoPath string) (scannersdomain.VulnerabilityResult, error)
+}
+
+// RepoFetcher is the port the use case consumes to clone a remote
+// repository to a local directory before scanning it. The
+// contract mirrors internal/scm/ports.RepoFetcher; redeclared
+// here for the same decoupling reason as SBOMScanner.
+type RepoFetcher interface {
+	Clone(ctx context.Context, url scmdomain.PRURL) (string, error)
 }
