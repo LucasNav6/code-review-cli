@@ -12,21 +12,12 @@ import (
 	"github.com/LucasNav6/code-review-cli/internal/logging"
 	"github.com/LucasNav6/code-review-cli/internal/llm/resolver"
 	"github.com/LucasNav6/code-review-cli/internal/prompts/adapters/fs"
-	"github.com/LucasNav6/code-review-cli/internal/review/domain"
 	"github.com/LucasNav6/code-review-cli/internal/review/render"
 	"github.com/LucasNav6/code-review-cli/internal/review/usecase"
 	"github.com/LucasNav6/code-review-cli/internal/scm/adapters/gh"
 	"github.com/LucasNav6/code-review-cli/internal/scm/adapters/storage"
 	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
 )
-
-// reviewTypeFlag is the value the user passed via --type. Captured
-// at cobra-flag-parse time and read inside RunE.
-var reviewTypeFlag string
-
-// providerFlag is the value the user passed via --provider. An
-// empty string means "use the persisted config / default".
-var providerFlag string
 
 func newReviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -38,29 +29,15 @@ resilience, maintainability, security and testing categories.
 
 Examples:
   code-review review --url https://github.com/owner/repo/pull/123
-  code-review review --url <pr-url> --type security
-  code-review review --url <pr-url> --provider codex`,
+
+The LLM provider is selected via 'code-review config set provider <name>'.
+There is no --provider flag; configuration is the only way to pick the
+backend. All categories run by default; there is no --type flag.`,
 		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE:          runReview,
 	}
-
-	// --provider overrides the persisted config for a single
-	// invocation. The resolver handles the "override > config >
-	// default" lookup order.
-	cmd.Flags().StringVar(&providerFlag, "provider", "",
-		"LLM provider to use (claude, codex) — overrides the saved config")
-
-	// --type selects which review category to run. The default is
-	// domain.DefaultReviewType (= ReviewTypeAll) so a plain
-	// `code-review review` invocation runs the four canonical
-	// categories sequentially. Using the domain constant (not the
-	// literal "all") keeps the cmd in sync if the default ever
-	// changes.
-	cmd.Flags().StringVar(&reviewTypeFlag, "type", string(domain.DefaultReviewType),
-		"Review category to run (resilience, maintainability, security, testing, all)")
-
 	return cmd
 }
 
@@ -105,9 +82,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		sbomScanner, repoFetcher)
 
 	if err := uc.Execute(cmd.Context(), usecase.ReviewPRInput{
-		URL:             url,
-		ReviewType:      domain.ReviewType(reviewTypeFlag),
-		ProviderOverride: providerFlag,
+		URL: url,
 	}); err != nil {
 		return mapReviewError(err)
 	}
@@ -132,7 +107,6 @@ var reviewErrorMapping = []struct {
 	{scmdomain.ErrSCMBinaryUnavailable, logging.ErrorTypeGitHubCLIUnavailable},
 	{scmdomain.ErrDiffFetchFailed, logging.ErrorTypeDiffFetch},
 	{scmdomain.ErrMetadataFetchFailed, logging.ErrorTypeMetadata},
-	{domain.ErrUnknownReviewType, logging.ErrorTypeCommandFlag},
 }
 
 // mapReviewError converts the error returned by ReviewPRUseCase
