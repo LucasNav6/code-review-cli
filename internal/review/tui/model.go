@@ -13,7 +13,8 @@ import (
 	"fmt"
 
 	"charm.land/bubbles/v2/list"
-	"charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
 )
@@ -78,8 +79,8 @@ const (
 )
 
 // Model is the bubbletea tea.Model. F4 ships the overview view;
-// F5 adds the findings list + detail view; F6 will add the
-// spinner; F7 wires the TUI into cmd.
+// F5 adds the findings list + detail view; F6 adds the spinner
+// shown while the use case is running; F7 wires the TUI into cmd.
 //
 // The model is intentionally a single struct (not a tree of
 // sub-models) because the TUI is small (3 views) and the cost of
@@ -107,6 +108,11 @@ type Model struct {
 	// it for the spinner status ("Running security review…").
 	statusMessage string
 
+	// categoryHint is shown next to the spinner while the use
+	// case is running (e.g. "Fetching diff" / "Running security
+	// review"). Empty when analysis != AnalysisRunning.
+	categoryHint string
+
 	// review is the result of the use case. nil while the use
 	// case is running.
 	review *reviewdomain.Review
@@ -123,6 +129,10 @@ type Model struct {
 	// detail view should show. Updated when the user presses
 	// Enter on the list view.
 	selectedIndex int
+
+	// spinner animates the "running" overview. Nil when the use
+	// case is not running (AnalysisDone / AnalysisError).
+	spinner spinner.Model
 }
 
 // New creates a Model initialised with the given Review. The
@@ -174,8 +184,7 @@ func (m *Model) Init() tea.Cmd {
 //	Overview view:
 //
 //	    q / ctrl+c  quit
-//	    enter       switch to findings list
-//	    esc         no-op (already at root)
+//	    enter       switch to findings list (no-op while running)
 //
 //	Findings list:
 //
@@ -189,14 +198,40 @@ func (m *Model) Init() tea.Cmd {
 //
 //	    q / ctrl+c   quit
 //	    esc          back to findings list
+//
+// Custom messages:
+//
+//	ReviewReadyMsg  flips the model from AnalysisRunning to
+//	                AnalysisDone (or AnalysisError). Carries the
+//	                Review + Err from the use case.
+//	spinner.TickMsg  forwarded to the spinner so it animates.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Resize the list to match the new terminal size.
-		// We leave room at the top for the status footer.
 		m.list.SetSize(msg.Width, msg.Height-4)
+		return m, nil
+
+	case ReviewReadyMsg:
+		// The use case finished. Flip state, populate the review
+		// (or the error), rebuild the list from the new findings,
+		// and stop the spinner (just clear it; we no longer render
+		// it once analysis != Running).
+		if msg.Err != nil {
+			m.analysis = AnalysisError
+			m.errorMsg = msg.Err.Error()
+			return m, nil
+		}
+		r := msg.Review
+		m.review = &r
+		m.analysis = AnalysisDone
+		m.statusMessage = "press q to quit"
+		// Rebuild the list with the final findings.
+		items := findingsAsItems(r.Findings)
+		m.list = list.New(items, newFindingDelegate(m.width), m.width, m.height-4)
+		m.list.Title = "Findings"
+		m.selectedIndex = 0
 		return m, nil
 
 	case tea.KeyMsg:
@@ -207,7 +242,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			switch m.view {
 			case ViewOverview:
-				if m.analysis != AnalysisError && len(m.reviewOrNil().Findings) > 0 {
+				if m.analysis == AnalysisDone && len(m.reviewOrNil().Findings) > 0 {
 					m.view = ViewFindings
 				}
 			case ViewFindings:
@@ -233,7 +268,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Forward any other messages (notably spinner.TickMsg) to
+	// the spinner when it is active. This is what makes the
+	// running screen animate.
+	if m.analysis == AnalysisRunning && m.isSpinnerActive() {
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+
 	return m, nil
+}
+
+// isSpinnerActive reports whether the model has a live spinner
+// (the field is non-zero after NewRunning). We cannot compare
+// the spinner.Model value directly because its fields are
+// unexported; we use the analysis state as the indicator
+// instead, which is the same condition.
+func (m *Model) isSpinnerActive() bool {
+	return m.analysis == AnalysisRunning
 }
 
 // View renders the current screen.

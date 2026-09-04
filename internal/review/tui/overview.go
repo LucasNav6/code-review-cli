@@ -26,6 +26,13 @@ func (m *Model) viewOverview() string {
 		return errorView(m.errorMsg, m.width)
 	}
 
+	// When the analysis is still running, render the spinner +
+	// category hint. The user sees progress without any "loading…"
+	// placeholder.
+	if m.analysis == AnalysisRunning {
+		return m.viewRunning()
+	}
+
 	r := m.reviewOrNil()
 	if r == nil {
 		return "loading…"
@@ -219,4 +226,23 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// viewRunning renders the overview screen while the use case is
+// in flight. The layout is intentionally compact:
+//
+//	⠋ Fetching diff
+//
+// The spinner frame updates via spinner.TickMsg bubbled from
+// Update; the hint is whatever the cmd layer chose for the
+// current phase (e.g. "Fetching diff" → "Running resilience
+// review" → "Running security review" → ...).
+func (m *Model) viewRunning() string {
+	frame := m.spinner.View()
+	hint := m.categoryHint
+	if hint == "" {
+		hint = "working…"
+	}
+	row := frame + " " + hint
+	return strings.Repeat("\n", maxInt(m.height/2-1, 1)) + row
 }

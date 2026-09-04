@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,6 +11,9 @@ import (
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
 	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
 )
+
+// errBoom is a sentinel error used by the spinner tests.
+var errBoom = errors.New("boom")
 
 // multiFindingReview returns a Review with 4 findings spanning
 // every category the TUI handles today. The TUI list view
