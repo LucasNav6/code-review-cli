@@ -2,10 +2,10 @@ package usecase_test
 
 import (
 	"context"
-	"sync"
 
 	llmdomain "github.com/LucasNav6/code-review-cli/internal/llm/domain"
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
+	scannersdomain "github.com/LucasNav6/code-review-cli/internal/scanners/domain"
 	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
 	"github.com/LucasNav6/code-review-cli/internal/review/usecase"
 )
@@ -16,10 +16,8 @@ import (
 // the use case performs. Production code MUST NOT depend on
 // these types.
 
-// fakeSCM implements SCM with configurable behaviour per method.
-// Tests set the *Err fields to simulate failures and the *Out
-// fields to control the success responses. Calls records every
-// invocation so tests can assert on the call sequence.
+// fakeSCM implements usecase.SCM. Tests configure its fields to
+// return canned responses or simulate failures.
 type fakeSCM struct {
 	ValidateErr     error
 	FetchMetaErr    error
@@ -27,7 +25,7 @@ type fakeSCM struct {
 	ValidateCalls   int
 	FetchMetaCalls  int
 	FetchDiffCalls  int
-	MetadataResult   scmdomain.PRMetadata
+	MetadataResult  scmdomain.PRMetadata
 	DiffResult      scmdomain.Diff
 }
 
@@ -47,38 +45,28 @@ func (f *fakeSCM) FetchDiff(ctx context.Context, url scmdomain.PRURL) (scmdomain
 }
 
 // fakeStore implements DiffStore by holding the diff in memory.
-// Useful for asserting that the use case persists the diff it
-// fetched before handing it to the prompt loader.
 type fakeStore struct {
-	Saved scmdomain.Diff
-	// LoadResult is what Load returns (useful for tests that
-	// want to simulate corruption or a missing diff).
+	Saved     scmdomain.Diff
 	LoadResult scmdomain.Diff
-	LoadErr    error
-	SaveErr    error
-	SavedCount int
+	LoadErr   error
+	SaveErr   error
 }
 
-func (f *fakeStore) Save(d scmdomain.Diff) error {
-	f.Saved = d
-	f.SavedCount++
-	return f.SaveErr
+func (s *fakeStore) Save(d scmdomain.Diff) error {
+	s.Saved = d
+	return s.SaveErr
 }
 
-func (f *fakeStore) Load() (scmdomain.Diff, error) {
-	return f.LoadResult, f.LoadErr
+func (s *fakeStore) Load() (scmdomain.Diff, error) {
+	return s.LoadResult, s.LoadErr
 }
 
-// fakeResolver implements LLMProviderResolver. The provider it
-// returns is configurable per name so tests can simulate "unknown
-// provider" by leaving a name unmapped.
+// fakeResolver implements LLMProviderResolver. Tests map provider
+// names to the Provider returned by Resolve.
 type fakeResolver struct {
-	// Providers maps a name to the Provider returned by Resolve.
-	// Unmapped names produce ResolveErr (or domain.ErrUnknownProvider
-	// if ResolveErr is nil).
-	Providers map[string]llmdomain.Provider
+	Providers  map[string]llmdomain.Provider
 	ResolveErr error
-	Calls      []string // every name that was resolved, in order
+	Calls      []string
 }
 
 func (f *fakeResolver) Resolve(name string) (llmdomain.Provider, error) {
@@ -93,107 +81,15 @@ func (f *fakeResolver) Resolve(name string) (llmdomain.Provider, error) {
 	return p, nil
 }
 
-// fakeLoader implements PromptLoader by returning canned templates
-// keyed by PromptFile. Useful for asserting that the use case picks
-// the right prompt for each category.
-type fakeLoader struct {
-	// Templates maps the file name to the template body the loader
-	// returns.
-	Templates map[reviewdomain.PromptFile]string
-	LoadErr   error
-	Calls     []reviewdomain.PromptFile
-	// LastContext captures the PromptContext from the most recent
-	// Load call. Tests assert on this to verify the use case
-	// passes the right SBOM/Diff values down.
-	LastContext usecase.PromptContext
-}
-
-func (f *fakeLoader) Load(pf reviewdomain.PromptFile, ctx usecase.PromptContext) (string, error) {
-	f.Calls = append(f.Calls, pf)
-	f.LastContext = ctx
-	if f.LoadErr != nil {
-		return "", f.LoadErr
-	}
-	t, ok := f.Templates[pf]
-	if !ok {
-		return "", scmdomain.ErrSCMBinaryMissing // any sentinel will do
-	}
-	return t, nil
-}
-
-// fakeSink implements OutputSink by recording every call.
-// RenderFindings returns RenderErr so failures can be simulated.
-type fakeSink struct {
-	HeaderCalls         int
-	HeaderMeta          scmdomain.PRMetadata
-	HeaderCategoryCalls int
-	CategoryHeaders     []reviewdomain.Category
-	FindingsCalls       int
-	FindingsByCategory  map[reviewdomain.Category]string // cat -> response
-	SpinnerStarts       int
-	SpinnerStops        int
-	RenderErr           error
-}
-
-func (f *fakeSink) RenderHeader(meta scmdomain.PRMetadata) {
-	f.HeaderCalls++
-	f.HeaderMeta = meta
-}
-
-func (f *fakeSink) StartCategoryHeader(category reviewdomain.Category) {
-	f.HeaderCategoryCalls++
-	f.CategoryHeaders = append(f.CategoryHeaders, category)
-}
-
-func (f *fakeSink) StartSpinner(msg string) usecase.SpinnerHandle {
-	f.SpinnerStarts++
-	return &fakeSpinnerHandle{onStop: func() { f.SpinnerStops++ }}
-}
-
-func (f *fakeSink) RenderFindings(category reviewdomain.Category, response string) error {
-	f.FindingsCalls++
-	if f.FindingsByCategory == nil {
-		f.FindingsByCategory = make(map[reviewdomain.Category]string)
-	}
-	f.FindingsByCategory[category] = response
-	return f.RenderErr
-}
-
-// fakeSpinnerHandle satisfies usecase.SpinnerHandle for tests.
-// Calling Stop records one stop; calling Stop twice is safe (the
-// second call is a no-op via the closed-channel guard below).
-type fakeSpinnerHandle struct {
-	onStop   func()
-	stopOnce sync.Once
-}
-
-func (h *fakeSpinnerHandle) Stop() {
-	h.stopOnce.Do(func() {
-		if h.onStop != nil {
-			h.onStop()
-		}
-	})
-}
-
-// fakeNotifier implements Notifier by capturing every warning.
-type fakeNotifier struct {
-	Warnings []string
-}
-
-func (f *fakeNotifier) Warn(msg string) {
-	f.Warnings = append(f.Warnings, msg)
-}
-
-// fakeProvider implements llmdomain.Provider by returning canned
-// responses and configurable errors.
+// fakeProvider implements llmdomain.Provider with canned responses.
 type fakeProvider struct {
-	NameVal          string
-	ValidateErr      error
-	RunResp          string
-	RunErr           error
-	ValidateCalls    int
-	RunCalls         int
-	LastPrompt       string
+	NameVal       string
+	ValidateErr   error
+	RunResp       string
+	RunErr        error
+	ValidateCalls int
+	RunCalls      int
+	LastPrompt    string
 }
 
 func (f *fakeProvider) Name() string { return f.NameVal }
@@ -208,3 +104,52 @@ func (f *fakeProvider) Run(ctx context.Context, prompt string) (string, error) {
 	f.LastPrompt = prompt
 	return f.RunResp, f.RunErr
 }
+
+// fakeLoader implements PromptLoader. Templates is keyed by the
+// prompt file so tests can return a different body per category.
+type fakeLoader struct {
+	Templates map[reviewdomain.PromptFile]string
+	LoadErr   error
+	Calls     []reviewdomain.PromptFile
+	LastCtx   usecase.PromptContext
+}
+
+func (f *fakeLoader) Load(promptFile reviewdomain.PromptFile, ctx usecase.PromptContext) (string, error) {
+	f.Calls = append(f.Calls, promptFile)
+	f.LastCtx = ctx
+	if f.LoadErr != nil {
+		return "", f.LoadErr
+	}
+	t, ok := f.Templates[promptFile]
+	if !ok {
+		return "", scmdomain.ErrSCMBinaryMissing
+	}
+	return t, nil
+}
+
+// fakeScanner implements SBOMScanner with canned results.
+type fakeScanner struct {
+	Result scannersdomain.VulnerabilityResult
+	Err    error
+	Calls  []string
+}
+
+func (f *fakeScanner) Scan(ctx context.Context, repoPath string) (scannersdomain.VulnerabilityResult, error) {
+	f.Calls = append(f.Calls, repoPath)
+	return f.Result, f.Err
+}
+
+// fakeFetcher implements RepoFetcher. Returns Path on every call.
+type fakeFetcher struct {
+	Path  string
+	Err   error
+	Calls []scmdomain.PRURL
+}
+
+func (f *fakeFetcher) Clone(ctx context.Context, url scmdomain.PRURL) (string, error) {
+	f.Calls = append(f.Calls, url)
+	return f.Path, f.Err
+}
+
+// ensure reviewdomain stays referenced (used elsewhere in tests).
+var _ = reviewdomain.CategoryResilience

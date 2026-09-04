@@ -86,11 +86,16 @@ const DefaultReviewType = ReviewTypeAll
 // presented to the user when --type all is used. The order is the
 // order shown on screen, so changing it is a UX change and should be
 // done deliberately.
+//
+// SECURITY:SBOM is appended after SECURITY so the two security
+// passes (LLM-driven OWASP + scanner-driven CVE) run back-to-back
+// and the user reads them together.
 func CanonicalOrder() []Category {
 	return []Category{
 		CategoryResilience,
 		CategoryMaintainability,
 		CategorySecurity,
+		CategorySecuritySBOM,
 		CategoryTesting,
 	}
 }

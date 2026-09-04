@@ -30,6 +30,7 @@ func TestResolveCategories_KnownTypes(t *testing.T) {
 				domain.CategoryResilience,
 				domain.CategoryMaintainability,
 				domain.CategorySecurity,
+				domain.CategorySecuritySBOM,
 				domain.CategoryTesting,
 			},
 		},
@@ -102,6 +103,7 @@ func TestCanonicalOrderStable(t *testing.T) {
 		domain.CategoryResilience,
 		domain.CategoryMaintainability,
 		domain.CategorySecurity,
+		domain.CategorySecuritySBOM,
 		domain.CategoryTesting,
 	}
 	got := domain.CanonicalOrder()

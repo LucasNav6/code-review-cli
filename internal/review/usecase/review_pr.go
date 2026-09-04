@@ -1,3 +1,12 @@
+// Package usecase owns the ReviewPRUseCase: one Execute call
+// orchestrates the full review flow and returns a domain.Review
+// for the bubbletea TUI (F4-F7) to render.
+//
+// F3 broke the old OutputSink/Notifier contract: the use case no
+// longer paints. It returns a domain.Review and the cmd layer
+// decides how to display it. The sbom + repoFetcher ports stay
+// because the SBOM scan still produces findings (now returned
+// in the Review, not painted).
 package usecase
 
 import (
@@ -6,183 +15,134 @@ import (
 	"fmt"
 	"strings"
 
+	llmdomain "github.com/LucasNav6/code-review-cli/internal/llm/domain"
+	"github.com/LucasNav6/code-review-cli/internal/claudereview"
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
-	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
 	scannersdomain "github.com/LucasNav6/code-review-cli/internal/scanners/domain"
+	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
 )
 
-// ReviewPRInput is the parameter object Execute accepts. Keeping it
-// as a struct (rather than positional args) means new fields can be
-// added without breaking call sites.
+// ReviewPRInput is the parameter object Execute accepts. The
+// URL is the only required field today; --type / --provider were
+// removed in F1.
 type ReviewPRInput struct {
-	// URL is the raw PR URL as the user typed it. The use case
-	// validates and normalises it through scmdomain.NewPRURL before
-	// any SCM call is made, so downstream code can rely on the
-	// shape.
 	URL string
-
-	// ReviewType is the value the user passed via --type (or the
-	// empty string for the default). The use case routes this
-	// through reviewdomain.ResolveCategories.
-	ReviewType reviewdomain.ReviewType
-
-	// ProviderOverride is the value the user passed via --provider.
-	// An empty string means "use the persisted config / default";
-	// the resolver handles the rest.
-	ProviderOverride string
 }
 
 // ReviewPRUseCase orchestrates one full review of a pull request.
-// It owns the order of operations (validate SCM → fetch diff →
-// fetch metadata → render header → per-category LLM review) and
-// the failure semantics (some failures abort, others only emit a
-// warning and continue).
-//
-// Execute is the only public entry point. All other types and
-// helpers are unexported because the use case is meant to be used
-// as a single black box from the cmd layer.
+// Execute runs the SCM checks, fetches diff + metadata, builds the
+// SBOM context, runs the LLM pass per category, and returns a
+// domain.Review. Fatal errors abort and return (zero, err);
+// non-fatal per-category failures are captured as a missing
+// finding (the category simply contributes nothing to Review).
 type ReviewPRUseCase struct {
 	scm         SCM
 	store       DiffStore
 	resolver    LLMProviderResolver
 	loader      PromptLoader
-	sink        OutputSink
-	notifier    Notifier
 	scanner     SBOMScanner     // optional: nil disables SBOM
 	repoFetcher RepoFetcher      // optional: nil disables SBOM
 }
 
-// New builds the use case with all its dependencies. The caller
-// (composition root) is responsible for providing concrete (or
-// fake, in tests) implementations of every port. There is no
-// default — passing nil is a programming error.
-//
-// scanner and repoFetcher are OPTIONAL: passing nil for either
-// disables SBOM scanning. This keeps backward compatibility with
-// callers (mainly tests) that did not wire the scanner during the
-// H-S1 / H-S1.5 era.
+// New builds the use case with all its dependencies. The scanner
+// and repoFetcher are OPTIONAL: passing nil for either disables
+// SBOM scanning. The LLM provider resolver, loader, scm, store
+// are required (a nil here is a programming error).
 func New(
 	scm SCM,
 	store DiffStore,
 	resolver LLMProviderResolver,
 	loader PromptLoader,
-	sink OutputSink,
-	notifier Notifier,
 	scanner SBOMScanner,
 	repoFetcher RepoFetcher,
 ) *ReviewPRUseCase {
-	if scm == nil || store == nil || resolver == nil ||
-		loader == nil || sink == nil || notifier == nil {
-		panic("usecase.New: all dependencies are required")
+	if scm == nil || store == nil || resolver == nil || loader == nil {
+		panic("usecase.New: scm, store, resolver, loader are required")
 	}
 	return &ReviewPRUseCase{
 		scm:         scm,
 		store:       store,
 		resolver:    resolver,
 		loader:      loader,
-		sink:        sink,
-		notifier:    notifier,
 		scanner:     scanner,
 		repoFetcher: repoFetcher,
 	}
 }
 
-// Execute runs the full review flow. Returns the FIRST fatal error
-// encountered; non-fatal per-category failures are surfaced through
-// the Notifier and do not abort the flow.
+// Execute runs the full review flow and returns a domain.Review.
+// Fatal errors abort and return (zero, err); per-category failures
+// simply do not contribute findings to the Review.
 //
 // Fatal errors (the use case stops and returns the error):
-//
 //   - URL fails the shape check.
 //   - SCM validation fails (gh not installed, etc.).
-//   - Diff fetch fails (network, auth, PR not found).
-//   - Metadata fetch fails (same family).
-//   - ResolveCategories fails (unknown --type).
+//   - Diff fetch fails.
+//   - Metadata fetch fails.
+//   - ResolveCategories fails (unknown --type, future).
 //
-// Non-fatal errors (the use case logs via notifier.Warn and
-// continues with the next category):
-//
-//   - Per-category provider resolution fails (unknown provider).
-//   - Per-category provider validation fails.
-//   - Per-category prompt load fails.
-//   - Per-category LLM run fails.
-//   - Per-category render fails.
-//
-// The split is intentional: the first batch is about "we cannot
-// review at all"; the second is about "this one pass did not work".
-func (uc *ReviewPRUseCase) Execute(ctx context.Context, in ReviewPRInput) error {
-	// 1. Validate the URL shape so we fail fast on typos like
-	// "github.com/owner/repo" (repo URL, no /pull/<n>).
+// Non-fatal (category contributes no findings):
+//   - Provider resolution fails.
+//   - Provider validation fails.
+//   - Prompt load fails.
+//   - LLM run fails.
+//   - Render / parse fails.
+func (uc *ReviewPRUseCase) Execute(ctx context.Context, in ReviewPRInput) (reviewdomain.Review, error) {
+	// 1. Validate the URL.
 	prURL, err := scmdomain.NewPRURL(in.URL)
 	if err != nil {
-		return fmt.Errorf("validate url: %w", err)
+		return reviewdomain.Review{}, fmt.Errorf("validate url: %w", err)
 	}
 
-	// 2. Validate the SCM binary is installed. Fatal: without it
-	// nothing else can run.
+	// 2. Validate the SCM.
 	if err := uc.scm.Validate(ctx); err != nil {
-		return fmt.Errorf("validate scm: %w", err)
+		return reviewdomain.Review{}, fmt.Errorf("validate scm: %w", err)
 	}
 
-	// 3. Fetch the diff and persist it. Fatal: subsequent
-	// categories need the diff to build their prompts.
+	// 3. Fetch + store the diff.
 	diff, err := uc.scm.FetchDiff(ctx, prURL)
 	if err != nil {
-		return fmt.Errorf("fetch diff: %w", err)
+		return reviewdomain.Review{}, fmt.Errorf("fetch diff: %w", err)
 	}
 	if err := uc.store.Save(diff); err != nil {
-		return fmt.Errorf("store diff: %w", err)
+		return reviewdomain.Review{}, fmt.Errorf("store diff: %w", err)
 	}
 
-	// 4. Fetch metadata + render the header box. Fatal: a missing
-	// header leaves the user with no summary of what they are
-	// reviewing.
+	// 4. Fetch metadata.
 	meta, err := uc.scm.FetchMetadata(ctx, prURL)
 	if err != nil {
-		return fmt.Errorf("fetch metadata: %w", err)
-	}
-	uc.sink.RenderHeader(meta)
-
-	// 5. Resolve the categories from --type. An unknown value
-	// here is treated as fatal so the user does not run a silent
-	// zero-category review.
-	categories, err := reviewdomain.ResolveCategories(in.ReviewType)
-	if err != nil {
-		return fmt.Errorf("resolve categories: %w", err)
+		return reviewdomain.Review{}, fmt.Errorf("fetch metadata: %w", err)
 	}
 
-	// 6. Per-category loop. Each pass is independent and
-	// non-blocking; failures are reported via notifier.Warn and
-	// the loop moves on.
-	//
-	// The SBOM context is computed once (before the loop) and
-	// passed to every category that might want it. Today only
-	// CategorySecuritySBOM consumes it; the others ignore it.
-	sbom, sbomErr := uc.buildSBOMContext(ctx, categories, prURL)
-	if sbomErr != nil {
-		// SBOM failures are non-fatal: log a warning and let the
-		// categories run without SBOM data. The LLM for SBOM
-		// review will see an empty {{SBOM}} and emit no
-		// findings (or fall back gracefully).
-		uc.notifier.Warn(fmt.Sprintf("SBOM scan skipped: %v", sbomErr))
-	}
+	// 5. Run every known category in canonical order. Today the
+	// list is fixed (no --type flag); future F-X may let the
+	// user narrow it.
+	categories := reviewdomain.CanonicalOrder()
 
+	// 6. Build the SBOM context once (only if SECURITY:SBOM is
+	// in the category set). Failures are non-fatal: the SBOM
+	// category contributes no findings.
+	sbomText, _ := uc.buildSBOMContext(ctx, categories, prURL)
+
+	// 7. Per-category loop. Each pass appends its findings to
+	// the result. Per-category failures simply contribute zero
+	// findings (the review continues).
+	review := reviewdomain.Review{PullRequest: meta}
 	for _, cat := range categories {
-		uc.runOne(ctx, cat, diff.Body, in.ProviderOverride, sbom)
+		findings, err := uc.runOne(ctx, cat, diff.Body, sbomText)
+		if err != nil {
+			// Non-fatal: skip the category.
+			continue
+		}
+		review.Findings = append(review.Findings, findings...)
 	}
 
-	return nil
+	return review, nil
 }
 
 // buildSBOMContext scans the repo for SBOM data when any category
-// in the requested set is CategorySecuritySBOM. If no SBOM
-// category was requested, it returns an empty string without
-// invoking the scanner (no overhead for non-SBOM reviews).
-//
-// On any error (no repo path, scanner unavailable, network) the
-// caller receives (empty, err) so it can decide whether to abort
-// the whole review or just emit a warning. Today we treat every
-// SBOM error as non-fatal.
+// in the requested set is CategorySecuritySBOM. Returns the
+// JSON-encoded vulnerabilities (or "" if no SBOM is requested or
+// the scanner is unavailable).
 func (uc *ReviewPRUseCase) buildSBOMContext(ctx context.Context, categories []reviewdomain.Category, prURL scmdomain.PRURL) (string, error) {
 	if !needsSBOM(categories) {
 		return "", nil
@@ -190,23 +150,18 @@ func (uc *ReviewPRUseCase) buildSBOMContext(ctx context.Context, categories []re
 	if uc.scanner == nil || uc.repoFetcher == nil {
 		return "", fmt.Errorf("scanner not configured")
 	}
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("%w: %v", scannersdomain.ErrScannerUnavailable, err)
+	}
 
-	// Clone the repo to a tmpdir. We honour the caller's ctx for
-	// the clone network round-trip; on failure we return an
-	// error so the caller can decide whether to surface a warn.
 	repoPath, err := uc.repoFetcher.Clone(ctx, prURL)
 	if err != nil {
 		return "", fmt.Errorf("clone repo: %w", err)
 	}
-
-	// Scan the working tree. The scanner walks the dir looking
-	// for lockfiles (go.mod, package-lock.json, etc.) and
-	// queries the OSV database for CVEs.
 	result, err := uc.scanner.Scan(ctx, repoPath)
 	if err != nil {
 		return "", fmt.Errorf("scan sbom: %w", err)
 	}
-
 	return encodeSBOM(result), nil
 }
 
@@ -221,100 +176,93 @@ func needsSBOM(categories []reviewdomain.Category) bool {
 	return false
 }
 
-// runOne runs a single category pass end-to-end:
-//  1. resolve the provider for the current override,
-//  2. load the prompt template,
-//  3. substitute {{DIFF}} and {{SBOM}} as needed,
-//  4. validate the provider is installed,
-//  5. run the LLM,
-//  6. hand the raw response to the sink for rendering.
+// runOne runs one category pass and returns its findings (zero
+// or more) plus a non-fatal error. The caller appends the findings
+// to the Review and continues on error.
 //
-// Any failure is reported via notifier.Warn and the function returns
-// so the next category can proceed. The caller never sees a
-// category-level error.
-//
-// We pass diffBody (not the diff object) so the function does not
-// need to know about the Diff type and so tests can call it with
-// a literal []byte.
-func (uc *ReviewPRUseCase) runOne(ctx context.Context, cat reviewdomain.Category, diffBody []byte, providerOverride, sbom string) {
-	// 6.0. Paint the section header on stdout so the user sees
-	// what category is about to run. Done up-front so the
-	// spinner that follows lives BELOW the header (not in the
-	// same row).
-	uc.sink.StartCategoryHeader(cat)
-
-	// 6.1. Resolve the provider. Use the override if the user
-	// passed --provider; otherwise let the resolver fall back to
-	// the persisted config / default.
-	provider, err := uc.resolver.Resolve(providerOverride)
+// Provider resolution: the user picks the LLM via config
+// (`code-review config set provider <name>`). Today the resolver
+// returns the default when no override is passed (which is the
+// only mode after F1).
+func (uc *ReviewPRUseCase) runOne(ctx context.Context, cat reviewdomain.Category, diffBody []byte, sbom string) ([]reviewdomain.Finding, error) {
+	provider, err := uc.resolver.Resolve("")
 	if err != nil {
-		uc.notifier.Warn(fmt.Sprintf("category %s skipped: %v", cat, err))
-		return
+		return nil, fmt.Errorf("resolve provider for %s: %w", cat, err)
 	}
 
-	// 6.2. Load the prompt template for this category. The
-	// SBOM placeholder is empty for non-SBOM categories; the
-	// loader still substitutes it (no-op when empty).
 	promptFile := reviewdomain.PromptForCategory(cat)
 	templateBody, err := uc.loader.Load(promptFile, PromptContext{
 		Diff: string(diffBody),
 		SBOM: sbom,
 	})
 	if err != nil {
-		uc.notifier.Warn(fmt.Sprintf("category %s skipped: load prompt: %v", cat, err))
-		return
+		return nil, fmt.Errorf("load prompt %s: %w", cat, err)
 	}
 
-	// 6.3. Substitute the {{DIFF}} and {{SBOM}} placeholders.
-	// We do this in the use case (not the loader) so the loader
-	// is a dumb read-from-disk and the substitution policy is
-	// owned by the caller.
 	prompt := substituteDiff(templateBody, diffBody)
 	prompt = substituteSBOM(prompt, sbom)
 
-	// 6.4. Validate the provider is installed AND authenticated.
-	// Non-fatal so a single broken provider does not block the
-	// other categories.
 	if err := provider.ValidateInstalled(ctx); err != nil {
-		uc.notifier.Warn(fmt.Sprintf(
-			"category %s skipped: provider %s not installed: %v",
-			cat, provider.Name(), err))
-		return
+		return nil, fmt.Errorf("provider %s not installed: %w", provider.Name(), err)
 	}
 
-	// 6.5. Start the spinner (animates on the sink's stderr).
-	// Stop() is deferred so the spinner always terminates with a
-	// status glyph, even if the LLM panics or the use case aborts.
-	spinner := uc.sink.StartSpinner(fmt.Sprintf("claude reviewing %s…", cat))
-	defer spinner.Stop()
-
-	// 6.6. Run the LLM. Non-fatal so a single broken run does
-	// not block the other categories.
 	response, err := provider.Run(ctx, prompt)
 	if err != nil {
-		uc.notifier.Warn(fmt.Sprintf(
-			"category %s skipped: provider %s run failed: %v",
-			cat, provider.Name(), err))
-		return
+		return nil, fmt.Errorf("provider %s run failed: %w", provider.Name(), err)
 	}
 
-	// 6.7. Render findings BELOW the spinner row. The sink
-	// parses the LLM JSON and paints one card per finding (or
-	// a green "no findings" card when the list is empty). Sink
-	// errors are non-fatal.
-	if err := uc.sink.RenderFindings(cat, response); err != nil {
-		uc.notifier.Warn(fmt.Sprintf("category %s render failed: %v", cat, err))
+	claudeFindings, err := claudereview.Parse(response)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s response: %w", cat, err)
+	}
+
+	// Convert claudereview.Finding (the LLM wire format) to
+	// reviewdomain.Finding (the TUI / consumer format). Today
+	// the two are structurally identical; F-X may split them
+	// further if we add scanner-derived fields.
+	out := make([]reviewdomain.Finding, 0, len(claudeFindings))
+	for _, f := range claudeFindings {
+		out = append(out, findingFromClaude(f))
+	}
+	return out, nil
+}
+
+// findingFromClaude converts a claudereview.Finding (the parsed
+// LLM response shape) into a reviewdomain.Finding (the consumer
+// shape). The two structs are structurally identical today; this
+// conversion is a single named hop that documents where the
+// boundary lives.
+//
+// When the two diverge (e.g. scanner-derived fields land in
+// domain.Finding only), this function is the place to bridge.
+func findingFromClaude(f claudereview.Finding) reviewdomain.Finding {
+	snippets := make([]reviewdomain.Snippet, len(f.Snippets))
+	for i, s := range f.Snippets {
+		snippets[i] = reviewdomain.Snippet{Line: s.Line, Code: s.Code}
+	}
+	return reviewdomain.Finding{
+		Title:           f.Title,
+		Context:         f.Context,
+		Impact:          f.Impact,
+		Suggestion:      f.Suggestion,
+		Category:        string(f.Category),
+		Subcategory:     f.Subcategory,
+		File:            f.File,
+		Line:            f.Line,
+		Snippets:        snippets,
+		OWASP:           f.OWASP,
+		CVE:             f.CVE,
+		CVSS:            f.CVSS,
+		Component:       f.Component,
+		ComponentVersion: f.ComponentVersion,
+		FixedVersion:    f.FixedVersion,
+		SeverityLabel:   f.SeverityLabel,
 	}
 }
 
 // substituteDiff replaces every occurrence of {{DIFF}} in template
-// with body. If the placeholder is missing, body is appended (this
-// matches the existing internal/review.BuildPrompt behaviour so
-// the migration keeps the same prompt substitution semantics).
-//
-// The function is a small helper kept private to the package so
-// the substitution policy is owned by the use case, not the
-// loader.
+// with body. If the placeholder is missing, body is appended so
+// the LLM still sees the diff.
 func substituteDiff(template string, body []byte) string {
 	const placeholder = "{{DIFF}}"
 	if !strings.Contains(template, placeholder) {
@@ -324,12 +272,8 @@ func substituteDiff(template string, body []byte) string {
 }
 
 // substituteSBOM replaces every occurrence of {{SBOM}} in template
-// with body. If the placeholder is missing, body is appended so
-// the LLM still sees the SBOM data even when the prompt template
-// forgot to reference it (defensive default for future prompts).
-//
-// An empty body is a no-op: the placeholder stays literal so the
-// LLM sees "no SBOM data" rather than an empty injection.
+// with body. Empty body is a no-op so the LLM sees the literal
+// placeholder when no SBOM was provided.
 func substituteSBOM(template, body string) string {
 	if body == "" {
 		return template
@@ -342,26 +286,20 @@ func substituteSBOM(template, body string) string {
 }
 
 // encodeSBOM serialises a scanners.VulnerabilityResult into a
-// compact JSON string suitable for {{SBOM}} substitution. The
-// shape is intentionally flat — every field is included because
-// the LLM uses every one of them to assess actionability.
-//
-// Returns "" if the result has no vulnerabilities (the LLM gets
-// an empty {{SBOM}} placeholder and emits NO_FINDINGS).
+// compact JSON string for {{SBOM}} substitution.
 func encodeSBOM(result scannersdomain.VulnerabilityResult) string {
 	if len(result.Vulnerabilities) == 0 {
 		return ""
 	}
-	// Compact JSON: smaller prompts = lower token cost. We do
-	// NOT pretty-print because the LLM does not care about
-	// whitespace.
 	b, err := json.Marshal(result.Vulnerabilities)
 	if err != nil {
-		// Fall back to a human-readable representation. The LLM
-		// can parse either, but JSON is preferred when
-	// available.
 		return fmt.Sprintf("%d vulnerabilities found in %s",
 			len(result.Vulnerabilities), result.RepoPath)
 	}
 	return string(b)
 }
+
+// _ ensures the llmdomain import stays referenced for the LLM
+// provider name on errors. The actual Provider type comes from
+// the resolver which already depends on llmdomain.
+var _ llmdomain.Provider = nil
