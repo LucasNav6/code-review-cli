@@ -10,6 +10,9 @@
 package tui
 
 import (
+	"fmt"
+
+	"charm.land/bubbles/v2/list"
 	"charm.land/bubbletea/v2"
 
 	reviewdomain "github.com/LucasNav6/code-review-cli/internal/review/domain"
@@ -75,7 +78,8 @@ const (
 )
 
 // Model is the bubbletea tea.Model. F4 ships the overview view;
-// F5 will add fields for the findings list + viewport.
+// F5 adds the findings list + detail view; F6 will add the
+// spinner; F7 wires the TUI into cmd.
 //
 // The model is intentionally a single struct (not a tree of
 // sub-models) because the TUI is small (3 views) and the cost of
@@ -109,6 +113,16 @@ type Model struct {
 
 	// errorMsg is set when analysis == AnalysisError.
 	errorMsg string
+
+	// list is the bubbles/list.Model for the findings screen.
+	// Constructed once in New; updated only when the underlying
+	// review changes (which today is exactly once at startup).
+	list list.Model
+
+	// selectedIndex is the index into Review.Findings that the
+	// detail view should show. Updated when the user presses
+	// Enter on the list view.
+	selectedIndex int
 }
 
 // New creates a Model initialised with the given Review. The
@@ -117,12 +131,21 @@ type Model struct {
 // use NewRunning instead.
 func New(review reviewdomain.Review) *Model {
 	r := review
-	return &Model{
+	items := findingsAsItems(review.Findings)
+	// The list height is set to a sensible default; the real
+	// height arrives via WindowSizeMsg before the first paint.
+	l := list.New(items, newFindingDelegate(80), 80, 20)
+	l.Title = "Findings"
+	l.SetShowHelp(false) // we paint our own hint at the bottom
+	m := &Model{
 		view:           ViewOverview,
 		analysis:       AnalysisDone,
 		review:         &r,
+		list:           l,
+		selectedIndex:  0,
 		statusMessage:  "press q to quit",
 	}
+	return m
 }
 
 // NewError creates a Model initialised in the error state with
@@ -144,19 +167,68 @@ func (m *Model) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles incoming bubbletea messages. F4 only handles
-// WindowSize + KeyMsg (q to quit). F5/F6/F7 add the rest.
+// Update handles incoming bubbletea messages.
+//
+// Keybindings:
+//
+//	Overview view:
+//
+//	    q / ctrl+c  quit
+//	    enter       switch to findings list
+//	    esc         no-op (already at root)
+//
+//	Findings list:
+//
+//	    q / ctrl+c   quit
+//	    esc          back to overview
+//	    enter         open selected finding (detail view)
+//	    up/k          move selection up
+//	    down/j        move selection down
+//
+//	Detail view:
+//
+//	    q / ctrl+c   quit
+//	    esc          back to findings list
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Resize the list to match the new terminal size.
+		// We leave room at the top for the status footer.
+		m.list.SetSize(msg.Width, msg.Height-4)
 		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+
+		case "enter":
+			switch m.view {
+			case ViewOverview:
+				if m.analysis != AnalysisError && len(m.reviewOrNil().Findings) > 0 {
+					m.view = ViewFindings
+				}
+			case ViewFindings:
+				m.selectedIndex = m.list.Index()
+				m.view = ViewDetail
+			}
+
+		case "esc":
+			switch m.view {
+			case ViewFindings:
+				m.view = ViewOverview
+			case ViewDetail:
+				m.view = ViewFindings
+			}
+		}
+
+		// Delegate arrow keys / hjkl to the list when it is active.
+		if m.view == ViewFindings {
+			var cmd tea.Cmd
+			m.list, cmd = m.list.Update(msg)
+			return m, cmd
 		}
 		return m, nil
 	}
@@ -164,21 +236,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the current screen. F4 only renders the overview;
-// F5/F6/F7 add the other views.
+// View renders the current screen.
 func (m *Model) View() tea.View {
 	switch m.view {
 	case ViewOverview:
 		return tea.NewView(m.viewOverview())
 	case ViewFindings:
-		// F5: render the findings list.
-		return tea.NewView("findings list (TODO F5)")
+		return tea.NewView(m.viewFindings())
 	case ViewDetail:
-		// F5: render the finding detail.
-		return tea.NewView("finding detail (TODO F5)")
+		return tea.NewView(m.viewDetail())
 	default:
-		return tea.NewView("unknown view")
+		return tea.NewView(fmt.Sprintf("unknown view: %d", int(m.view)))
 	}
+}
+
+// viewFindings renders the findings list with a one-line footer
+// hint. The list is the bubbles/list.Model rendered directly;
+// its internal scrolling + selection state is opaque to us.
+func (m *Model) viewFindings() string {
+	r := m.reviewOrNil()
+	if r == nil || len(r.Findings) == 0 {
+		return "no findings"
+	}
+	footer := "[esc] back   [enter] open"
+	return m.list.View() + "\n" + footer
 }
 
 // reviewOrNil returns the underlying review, or nil if it is
