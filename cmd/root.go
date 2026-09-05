@@ -29,11 +29,13 @@ Use "code-review config" to choose the LLM provider.`,
 	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		switch {
-			case versionFlag:
-				return version.Print(cmd.OutOrStdout(), ui.MutedStyle)
-			default:
-				return runReview(cmd, nil)
-			}
+		case versionFlag:
+			return version.Print(cmd.OutOrStdout(), ui.MutedStyle)
+		case urlFlag != "":
+			return runReview(cmd, nil)
+		default:
+			return cmd.Help()
+		}
 	},
 }
 

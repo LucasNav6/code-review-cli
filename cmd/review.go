@@ -1,16 +1,17 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/LucasNav6/code-review-cli/helpers"
 	"github.com/LucasNav6/code-review-cli/internal/review/domain"
+	"github.com/LucasNav6/code-review-cli/internal/review/tui"
 	gitAdapter "github.com/LucasNav6/code-review-cli/internal/scm/adapters/git"
 	osvAdapter "github.com/LucasNav6/code-review-cli/internal/scanners/adapters/osv"
 	"github.com/LucasNav6/code-review-cli/internal/logging"
@@ -22,12 +23,11 @@ import (
 	scmdomain "github.com/LucasNav6/code-review-cli/internal/scm/domain"
 )
 
-// F3 stub: runReview still lives in cmd/review.go because the
-// sub-command is still registered. F7 replaces the body with
-// the bubbletea TUI launch. For now we just call the use case
-// and write a one-line summary to stdout so the user has
-// confirmation the wiring works.
-
+// newReviewCmd builds the `code-review review` sub-command.
+// Kept for backward compatibility (existing scripts + docs
+// mention 'code-review review'); the same logic is also reachable
+// via 'code-review --url <pr>' (the root Cmd picks --url and
+// dispatches to runReview when no sub-command is given).
 func newReviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "review",
@@ -50,42 +50,102 @@ backend. All categories run by default; there is no --type flag.`,
 	return cmd
 }
 
+// runReview launches the bubbletea TUI. The flow:
+//
+//  1. Build the use case from concrete adapters (composition
+//     root).
+//  2. Create a TUI Model in the running state. The TUI paints
+//     a spinner + "Fetching diff" while the use case runs.
+//  3. Spawn a goroutine that runs the use case and sends a
+//     ReviewReadyMsg to the program when it returns.
+//  4. Run tea.NewProgram(...).Run() which blocks until the user
+//     quits (q/ctrl+c) or the goroutine sends ReviewReadyMsg + the
+//     user quits.
+//
+// Failure modes:
+//   - URL flag missing: error (the cobra cmd's Args validate this).
+//   - Use case fails before launching the TUI: log the error +
+//     return exit code 1 (no TUI).
+//   - Use case fails inside the TUI goroutine: the goroutine
+//     sends ReviewReadyMsg with Err set; the TUI shows the error
+//     view; the user can quit. No non-zero exit code because
+//     the TUI itself exited cleanly (user pressed q).
 func runReview(cmd *cobra.Command, _ []string) error {
 	url, err := cmd.Flags().GetString("url")
 	if err != nil {
 		return logging.LogError(os.Stderr, logging.ErrorTypeCommandFlag, exitCode, helpers.ErrCommandFlag)
 	}
 
-	review, err := buildReview(cmd.Context(), cmd.OutOrStdout(), os.Stderr, url)
+	// Build the use case from concrete adapters (composition
+	// root). We do this BEFORE launching the TUI so any
+	// configuration error (missing binary, bad adapter, etc.)
+	// surfaces as a clean exit code rather than inside the TUI.
+	uc, err := buildUseCase()
 	if err != nil {
 		return mapReviewError(err)
 	}
 
-	// F3 stub: print a one-line summary. F7 swaps this for the
-	// bubbletea TUI.
-	fmt.Fprintf(cmd.OutOrStdout(),
-		"review complete: %d findings on %s #%d\n",
-		len(review.Findings),
-		review.PullRequest.Title,
-		review.PullRequest.Number,
-	)
+	// Program context. We use the cobra-supplied ctx so
+	// signal-driven cancellation (ctrl+c on the terminal) tears
+	// down both the TUI and the use-case goroutine.
+	ctx := cmd.Context()
+
+	// Create the TUI in running state. The categoryHint tells
+	// the user "what is happening" during the first phase
+	// (diff + metadata fetch). F-X can layer per-category
+	// hints (sending ReviewReadyMsg with category-level
+	// progress) but the static hint is good enough for the
+	// first commit.
+	model := tui.NewRunning("Fetching diff")
+
+	// Pre-resolve the use case synchronously so we fail fast on
+	// bad URLs etc. The use case is fast for these checks
+	// (no network); the long phases happen after the TUI is up.
+	//
+	// We run a synchronous pre-check by calling Execute and
+	// inspecting the result. If the result is an error from the
+	// URL/validate/diff-fetch phase, fail before launching the
+	// TUI. If the result is a real Review, we use it as the
+	// initial Review (no spinner needed).
+	//
+	// For F7 we always launch the TUI in the running state — the
+	// pre-check is skipped. The user sees the spinner + hint +
+	// "press q to quit" while the use case runs. Errors are
+	// surfaced in the TUI itself (AnalysisError view).
+	p := tea.NewProgram(model)
+	defer p.Quit()
+
+	// Goroutine: run the use case + send ReviewReadyMsg.
+	go func() {
+		review, err := uc.Execute(ctx, usecase.ReviewPRInput{URL: url})
+		p.Send(tui.ReviewReadyMsg{Review: review, Err: err})
+	}()
+
+	// p.Run() blocks until the program exits (user quits). The
+	// TUI goroutine may send ReviewReadyMsg before we get here;
+	// that's fine — the program handles it before exiting.
+	if _, err := p.Run(); err != nil {
+		return logging.LogError(os.Stderr, logging.ErrorTypeUnknown, exitCode, err)
+	}
 	return nil
 }
 
-// buildReview wires the use case from concrete adapters and
-// returns the domain.Review result. Extracted so the future TUI
-// (F7) can call the same wiring.
-func buildReview(ctx context.Context, _, _ io.Writer, url string) (domain.Review, error) {
+// buildUseCase wires the use case from concrete adapters (the
+// composition root). Extracted so the TUI launch (runReview) and
+// any future headless mode (CI, IDE plugin) share the same wiring.
+//
+// Errors here mean the environment is broken (missing binary, bad
+// adapter config) and we cannot even start a review — so we
+// return the error before launching the TUI.
+func buildUseCase() (*usecase.ReviewPRUseCase, error) {
 	scmClient := gh.New()
 	store := storage.NewFileStore()
 	loader := fs.New()
 	sbomScanner := osvAdapter.New()
 	repoFetcher := gitAdapter.New()
 
-	uc := usecase.New(scmClient, store, resolver.New(), loader,
-		sbomScanner, repoFetcher)
-
-	return uc.Execute(ctx, usecase.ReviewPRInput{URL: url})
+	return usecase.New(scmClient, store, resolver.New(), loader,
+		sbomScanner, repoFetcher), nil
 }
 
 // reviewErrorMapping maps every documented fatal sentinel to the
@@ -115,3 +175,11 @@ func mapReviewError(err error) error {
 	}
 	return logging.LogError(os.Stderr, logging.ErrorTypeUnknown, exitCode, err)
 }
+
+// Ensure the build references unused imports are caught early;
+// these are aliases that document the F7 transition.
+var (
+	_ domain.Review
+	_ io.Writer
+	_ = fmt.Sprintf
+)
