@@ -90,9 +90,22 @@ func TestNew_ShowsFindingCount(t *testing.T) {
 
 // TestUpdate_WindowSizeSurvives verifies Update does not panic
 // for the most common bubbletea message.
+//
+// Today every Model constructor initialises the list via newList()
+// so a WindowSizeMsg never nil-derefs. The regression we are
+// guarding against was: NewRunning + NewError left m.list as the
+// zero-value list.Model; bubbles/list.updatePagination then
+// nil-derefed inside SetSize on the very first bubbletea event.
 func TestUpdate_WindowSizeSurvives(t *testing.T) {
-	m := tui.New(sampleReview())
-	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	for _, m := range []*tui.Model{
+		tui.New(sampleReview()),
+		tui.NewRunning("Fetching diff"),
+		tui.NewError("gh CLI not installed"),
+	} {
+		if _, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24}); m == nil {
+			t.Fatal("model was nil after WindowSizeMsg")
+		}
+	}
 }
 
 // TestNewError_RendersError verifies that an error review shows

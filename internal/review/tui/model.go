@@ -135,37 +135,76 @@ type Model struct {
 	spinner spinner.Model
 }
 
+// newList returns a fresh bubbles/list.Model sized to 80x20 with
+// no items. The list is mandatory: Update calls m.list.SetSize
+// when a WindowSizeMsg arrives, and SetSize on a zero-value list
+// nil-derefs inside bubbles/list.updatePagination. Every Model
+// constructor must call this helper.
+//
+// width/height defaults (80x20) are overwritten by the first
+// WindowSizeMsg; they exist so the list is usable before that
+// arrives.
+func newList() list.Model {
+	l := list.New(nil, newFindingDelegate(80), 80, 20)
+	l.Title = "Findings"
+	l.SetShowHelp(false) // we paint our own hint at the bottom
+	return l
+}
+
 // New creates a Model initialised with the given Review. The
 // analysis state is set to AnalysisDone so the overview renders
 // the final counts immediately. To start in AnalysisRunning,
 // use NewRunning instead.
 func New(review reviewdomain.Review) *Model {
 	r := review
-	items := findingsAsItems(review.Findings)
-	// The list height is set to a sensible default; the real
-	// height arrives via WindowSizeMsg before the first paint.
-	l := list.New(items, newFindingDelegate(80), 80, 20)
-	l.Title = "Findings"
-	l.SetShowHelp(false) // we paint our own hint at the bottom
+	l := newList()
+	// Populate the list now with the review's findings. We
+	// rebuild it on ReviewReadyMsg in Update if the review
+	// changes, so today's setup-time population is sufficient.
+	l.SetItems(findingsAsItems(review.Findings))
 	m := &Model{
-		view:           ViewOverview,
-		analysis:       AnalysisDone,
-		review:         &r,
-		list:           l,
-		selectedIndex:  0,
-		statusMessage:  "press q to quit",
+		view:          ViewOverview,
+		analysis:      AnalysisDone,
+		review:        &r,
+		list:          l,
+		selectedIndex: 0,
+		statusMessage: "press q to quit",
 	}
 	return m
+}
+
+// NewRunning creates a Model in the running state. The overview
+// view paints a spinner + the supplied categoryHint (e.g.
+// "Fetching diff" / "Running security review" / etc.) so the
+// user sees progress during the long phases of the use case.
+//
+// The list is initialised empty; items are filled in when
+// ReviewReadyMsg arrives (see Update).
+func NewRunning(categoryHint string) *Model {
+	s := spinner.New(spinner.WithSpinner(spinner.Dot))
+	return &Model{
+		view:          ViewOverview,
+		analysis:      AnalysisRunning,
+		spinner:       s,
+		list:          newList(),
+		categoryHint:  categoryHint,
+		statusMessage: categoryHint,
+	}
 }
 
 // NewError creates a Model initialised in the error state with
 // the given message. The TUI shows the message + lets the user
 // quit.
+//
+// The list is still initialised because Update calls SetSize on
+// it for any WindowSizeMsg, even when the user is looking at
+// the error view.
 func NewError(msg string) *Model {
 	return &Model{
 		view:          ViewOverview,
 		analysis:      AnalysisError,
 		errorMsg:      msg,
+		list:          newList(),
 		statusMessage: "press q to quit",
 	}
 }
