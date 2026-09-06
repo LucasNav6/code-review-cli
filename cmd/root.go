@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/spf13/cobra"
 	"github.com/LucasNav6/code-review-cli/internal/logging"
 	"github.com/LucasNav6/code-review-cli/internal/version"
@@ -40,7 +44,16 @@ Use "code-review config" to choose the LLM provider.`,
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	// A signal-aware, cancellable context so ctrl+c/SIGTERM (delivered
+	// outside the TUI's raw-mode key handling — e.g. `kill`, or ctrl+c
+	// after the terminal has left raw mode) actually tears down any
+	// in-flight subprocess (git clone, gh, claude) instead of leaving it
+	// orphaned. See runReview in cmd/review.go for the TUI-exit path,
+	// which layers its own cancellation on top of this context.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		logging.LogError(os.Stderr, logging.ErrorTypeUnknown, exitCode, err)
 		os.Exit(exitCode)
 	}
